@@ -444,6 +444,7 @@ public sealed class WatchHistoryServiceTests
         _mockLibraryManager.VerifyRemove(manager => manager.ItemAdded -= It.IsAny<EventHandler<ItemChangeEventArgs>>(), Times.Once);
         _mockLibraryManager.VerifyRemove(manager => manager.ItemUpdated -= It.IsAny<EventHandler<ItemChangeEventArgs>>(), Times.Once);
         _mockLibraryManager.VerifyRemove(manager => manager.ItemRemoved -= It.IsAny<EventHandler<ItemChangeEventArgs>>(), Times.Once);
+        _mockUserManager.VerifyRemove(manager => manager.OnUserUpdated -= It.IsAny<EventHandler<Jellyfin.Data.Events.GenericEventArgs<Jellyfin.Database.Implementations.Entities.User>>>(), Times.Once);
     }
 
     [Theory]
@@ -513,6 +514,20 @@ public sealed class WatchHistoryServiceTests
         Assert.Contains(alice.Id, ids);
         Assert.Contains(bobThrows.Id, ids);
         Assert.Contains(charlie.Id, ids);
+    }
+
+    [Fact]
+    public void RatingOnlyHistoryRemainsExplicitFeedbackWithoutChangingTheWatchedCommunityAverage()
+    {
+        var user = CreateTestUser("rating evidence");
+        var watched = new Movie { Id = Guid.NewGuid(), Path = "/media/watched.mkv", CommunityRating = 8 };
+        var rated = new Movie { Id = Guid.NewGuid(), Path = "/media/rated.mkv", CommunityRating = 4 };
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, watched)).Returns(new UserItemData { Key = "played", Played = true });
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, rated)).Returns(new UserItemData { Key = "rated", Rating = 2 });
+        var profile = _service.BuildProfile(user, [watched, rated], [], collectionIds: []);
+        Assert.Equal(8, profile.AverageCommunityRating);
+        Assert.Equal(2, Assert.Single(profile.WatchedItems, row => row.ItemId == rated.Id).UserRating);
+        Assert.False(Assert.Single(profile.WatchedItems, row => row.ItemId == rated.Id).HasPlaybackActivity());
     }
 
     [Theory]

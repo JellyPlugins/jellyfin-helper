@@ -899,6 +899,7 @@ internal static class TrainingDataBuilder
         var candidateStudios = ProducerEvidence.Keys(lookups.ItemStudiosLookup.TryGetValue(rec.ItemId, out var producers) ? producers : rec.TitleMetadata, predictionTime) ?? [];
         var candidateTags = lookups.ItemTagsLookup.GetValueOrDefault(rec.ItemId) ?? rec.Tags;
         var candidateCollections = lookups.ItemBoxSetIdsLookup.GetValueOrDefault(rec.ItemId) ?? rec.BoxSetIds;
+        var candidateCredits = CandidateCredits(rec.ItemId, rec.Credits, lookups, predictionTime);
         var studioMatch = candidateStudios.Count > 0 && candidateStudios.Any(preferredStudios.Contains);
 
         var tagSimilarity = TrainingFeatureComputer.ComputeTagSimilarityFromCache(candidateTags, preferredTags);
@@ -956,16 +957,16 @@ internal static class TrainingDataBuilder
                 : ContentScoring.ComputeRecencyScore(default, predictionTime),
             ContentNearestNeighborScore = TrainingFeatureComputer.ComputeContentNearestNeighborFromCache(
                 rec.Genres,
-                contentSets.CreditPreferences.Keys(rec.Credits).ToArray(),
+                contentSets.CreditPreferences.Keys(candidateCredits).ToArray(),
                 candidateStudios,
                 contentSets.WatchedGenreSets,
                 contentSets.WatchedPeopleSets,
                 contentSets.WatchedStudioSets),
             LanguageAffinity = TrainingFeatureComputer.ComputeLanguageAffinityFromCache(rec.AudioLanguages, userProfile),
-            HasAudioLanguageEvidence = TrainingFeatureComputer.HasLanguageEvidence(rec.AudioLanguages, userProfile.LanguageProfile.Count),
+            HasAudioLanguageEvidence = TrainingFeatureComputer.HasLanguageEvidence(rec.AudioLanguages, userProfile.LanguageProfile),
             CollectionProgressionBoost = ComputeCollectionProgressionBoostWithCounts(candidateCollections, contentSets.WatchedBoxSetCounts),
             SubtitleLanguageAffinity = TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(rec.SubtitleLanguages, userProfile),
-            HasSubtitleLanguageEvidence = TrainingFeatureComputer.HasLanguageEvidence(rec.SubtitleLanguages, userProfile.SubtitleLanguageProfile.Count),
+            HasSubtitleLanguageEvidence = TrainingFeatureComputer.HasLanguageEvidence(rec.SubtitleLanguages, userProfile.SubtitleLanguageProfile),
             FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(lookups.TmdbCollectionIds.GetValueOrDefault(rec.ItemId, rec.TmdbCollectionId), rec.TmdbCollectionName, preferredFranchises),
             ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity(rec.ProductionCountries, preferredCountries),
             InheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity(rec.InheritedTags, preferredInheritedTags),
@@ -981,7 +982,7 @@ internal static class TrainingDataBuilder
         features.GenreUnderexposure = underexposure;
         features.GenreDominanceRatio = dominanceRatio;
         features.GenreAffinityGap = affinityGap;
-        contentSets.CreditPreferences.Apply(features, CandidateCredits(rec.ItemId, rec.Credits, lookups, predictionTime));
+        contentSets.CreditPreferences.Apply(features, candidateCredits);
 
         contentSets.ContentFit.Apply(features, rec.Genres, candidateTags, rec.OfficialRating, genrePreferences, rec.TitleMetadata);
         features.CollectionContinuationSupport = contentSets.CollectionContinuation.TryGetValue(rec.ItemId, out var continuation) ? continuation : null;
@@ -1277,7 +1278,8 @@ internal static class TrainingDataBuilder
                 history.Content.ContentFit,
                 ctx.Lookups.ItemStudiosLookup,
                 history.Content.CreditPreferences,
-                CandidateCredits(seriesId, episodes.Select(episode => episode.SeriesCredits).FirstOrDefault(snapshot => snapshot is not null), ctx.Lookups, DateTimeNormalization.ToUtc(before))));
+                CandidateCredits(seriesId, episodes.Select(episode => episode.SeriesCredits).FirstOrDefault(snapshot => snapshot is not null), ctx.Lookups, DateTimeNormalization.ToUtc(before)),
+                new TrainingFeatureComputer.NeighborInputs(history.Content.WatchedGenreSets, history.Content.WatchedPeopleSets, history.Content.WatchedStudioSets)));
         return 1;
     }
 
@@ -1374,9 +1376,9 @@ internal static class TrainingDataBuilder
                 ? ContentScoring.ComputeRecencyScore(w.DateCreated.Value, predictionTime)
                 : ContentScoring.ComputeRecencyScore(default, predictionTime),
             LanguageAffinity = TrainingFeatureComputer.ComputeLanguageAffinityFromCache(w.AudioLanguages ?? [], userProfile),
-            HasAudioLanguageEvidence = TrainingFeatureComputer.HasLanguageEvidence(w.AudioLanguages, userProfile.LanguageProfile.Count, w.HasAudioLanguageMetadata),
+            HasAudioLanguageEvidence = TrainingFeatureComputer.HasLanguageEvidence(w.AudioLanguages, userProfile.LanguageProfile, w.HasAudioLanguageMetadata),
             SubtitleLanguageAffinity = TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(w.SubtitleLanguages ?? [], userProfile),
-            HasSubtitleLanguageEvidence = TrainingFeatureComputer.HasLanguageEvidence(w.SubtitleLanguages, userProfile.SubtitleLanguageProfile.Count, w.HasSubtitleLanguageMetadata),
+            HasSubtitleLanguageEvidence = TrainingFeatureComputer.HasLanguageEvidence(w.SubtitleLanguages, userProfile.SubtitleLanguageProfile, w.HasSubtitleLanguageMetadata),
             ContentNearestNeighborScore = TrainingFeatureComputer.ComputeContentNearestNeighborFromCache(
                 wGenres, w.PeopleNames, organicStudios ?? [], history.Content.WatchedGenreSets, history.Content.WatchedPeopleSets, history.Content.WatchedStudioSets),
             FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(lookups.TmdbCollectionIds.GetValueOrDefault(w.ItemId, w.TmdbCollectionId), w.TmdbCollectionName, preferredFranchisesOrganic),
@@ -1663,10 +1665,10 @@ internal static class TrainingDataBuilder
                 contentSets.WatchedPeopleSets,
                 contentSets.WatchedStudioSets),
             LanguageAffinity = TrainingFeatureComputer.ComputeLanguageAffinityFromCache(neg.AudioLanguages, userProfile),
-            HasAudioLanguageEvidence = TrainingFeatureComputer.HasLanguageEvidence(neg.AudioLanguages, userProfile.LanguageProfile.Count),
+            HasAudioLanguageEvidence = TrainingFeatureComputer.HasLanguageEvidence(neg.AudioLanguages, userProfile.LanguageProfile),
             CollectionProgressionBoost = ComputeCollectionProgressionBoostWithCounts(lookups.ItemBoxSetIdsLookup.GetValueOrDefault(neg.ItemId) ?? neg.BoxSetIds, contentSets.WatchedBoxSetCounts),
             SubtitleLanguageAffinity = TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(neg.SubtitleLanguages, userProfile),
-            HasSubtitleLanguageEvidence = TrainingFeatureComputer.HasLanguageEvidence(neg.SubtitleLanguages, userProfile.SubtitleLanguageProfile.Count),
+            HasSubtitleLanguageEvidence = TrainingFeatureComputer.HasLanguageEvidence(neg.SubtitleLanguages, userProfile.SubtitleLanguageProfile),
             FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(lookups.TmdbCollectionIds.GetValueOrDefault(neg.ItemId, neg.TmdbCollectionId), neg.TmdbCollectionName, preferredFranchisesNeg),
             ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity(neg.ProductionCountries, preferredCountriesNeg),
             InheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity(neg.InheritedTags, preferredInheritedTagsNeg),

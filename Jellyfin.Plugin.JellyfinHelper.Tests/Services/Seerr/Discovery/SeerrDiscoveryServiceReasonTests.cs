@@ -11,6 +11,35 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 /// </summary>
 public sealed class SeerrDiscoveryServiceReasonTests
 {
+    [Theory]
+    [InlineData(null, false, false, false)]
+    [InlineData(null, true, false, true)]
+    [InlineData(false, true, false, false)]
+    [InlineData(true, false, false, true)]
+    [InlineData(null, false, true, false)]
+    [InlineData(null, true, true, true)]
+    [InlineData(false, true, true, false)]
+    [InlineData(true, false, true, true)]
+    public void FactualReasonsRequireOriginalAvailabilityOrAnObservedLegacySource(bool? availability, bool sourceHasValue, bool rating, bool expected)
+    {
+        var features = new CandidateFeatures
+        {
+            CombinedCriticScore = .9, PopularityScore = .9, RecencyScore = .9,
+            HasRatingMetadata = rating ? availability : false,
+            HasPopularityMetadata = rating ? false : availability
+        };
+        var candidate = new TmdbDiscoverItem
+        {
+            VoteAverageValue = sourceHasValue ? 9 : null,
+            PopularityValue = sourceHasValue ? 180 : null
+        };
+        var original = features.ToVector();
+        var reason = InvokeDetermineReason(features, candidate, [], []).ReasonKey;
+        var observedReason = rating ? "reasonTrending" : "reasonPopularAmongViewers";
+        Assert.Equal(expected ? observedReason : "reasonDefault", reason);
+        Assert.Equal(original, features.ToVector());
+    }
+
     // Person branch - the strongest signal, gates on BOTH threshold AND membership.
 
     [Fact]
@@ -229,7 +258,7 @@ public sealed class SeerrDiscoveryServiceReasonTests
     public void DetermineReason_HighRecencyAndCritic_ReturnsTrending()
     {
         var features = new CandidateFeatures { RecencyScore = 0.9, CombinedCriticScore = 0.85 };
-        var candidate = new TmdbDiscoverItem();
+        var candidate = new TmdbDiscoverItem { VoteAverage = 8.5 };
 
         var (reasonKey, relatedInfo) = InvokeDetermineReason(
             features, candidate, new List<string>(), new HashSet<string>());
@@ -245,7 +274,7 @@ public sealed class SeerrDiscoveryServiceReasonTests
     {
         // BUG GUARD: strict `>` gate on both dimensions of the trending branch.
         var features = new CandidateFeatures { RecencyScore = 0.8, CombinedCriticScore = 0.9 };
-        var candidate = new TmdbDiscoverItem();
+        var candidate = new TmdbDiscoverItem { VoteAverage = 9 };
 
         var (reasonKey, _) = InvokeDetermineReason(
             features, candidate, new List<string>(), new HashSet<string>());
@@ -360,7 +389,7 @@ public sealed class SeerrDiscoveryServiceReasonTests
             RecencyScore = 0.9,
             CombinedCriticScore = 0.9
         };
-        var candidate = new TmdbDiscoverItem();
+        var candidate = new TmdbDiscoverItem { VoteAverage = 9 };
         var topGenres = new List<string>();
 
         var (reasonKey, relatedInfo) = InvokeDetermineReason(features, candidate, topGenres, new HashSet<string>());
@@ -375,7 +404,7 @@ public sealed class SeerrDiscoveryServiceReasonTests
     public void DetermineReason_HighPopularity_ReturnsPopularAmongViewers()
     {
         var features = new CandidateFeatures { PopularityScore = 0.9 };
-        var candidate = new TmdbDiscoverItem();
+        var candidate = new TmdbDiscoverItem { Popularity = 180 };
 
         var (reasonKey, _) = InvokeDetermineReason(
             features, candidate, new List<string>(), new HashSet<string>());
@@ -387,7 +416,7 @@ public sealed class SeerrDiscoveryServiceReasonTests
     public void DetermineReason_HighCriticLowPopularity_ReturnsHighlyRated()
     {
         var features = new CandidateFeatures { CombinedCriticScore = 0.9, PopularityScore = 0.1 };
-        var candidate = new TmdbDiscoverItem();
+        var candidate = new TmdbDiscoverItem { VoteAverage = 9, Popularity = 20 };
 
         var (reasonKey, _) = InvokeDetermineReason(
             features, candidate, new List<string>(), new HashSet<string>());
@@ -400,7 +429,7 @@ public sealed class SeerrDiscoveryServiceReasonTests
     {
         // Popularity is checked before the critic score, so a broadly-watched title reads as crowd-popular.
         var features = new CandidateFeatures { PopularityScore = 0.9, CombinedCriticScore = 0.9 };
-        var candidate = new TmdbDiscoverItem();
+        var candidate = new TmdbDiscoverItem { VoteAverage = 9, Popularity = 180 };
 
         var (reasonKey, _) = InvokeDetermineReason(
             features, candidate, new List<string>(), new HashSet<string>());

@@ -69,7 +69,11 @@ public class RecommendationControllerTests
         var first = Assert.IsType<ObjectResult>((await controller.GetAllRecommendations(cancellationToken: TestContext.Current.CancellationToken)).Result);
         Assert.Equal(503, first.StatusCode);
         Assert.Equal("30", controller.Response.Headers.RetryAfter.ToString());
-        var second = Assert.IsType<ObjectResult>((await controller.GetAllRecommendations(cancellationToken: TestContext.Current.CancellationToken)).Result);
+        var nextController = new RecommendationController(_mockEngine.Object, _mockCache.Object, _mockWatchHistory.Object, _mockConfigService.Object, log.Object)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext() }
+        };
+        var second = Assert.IsType<ObjectResult>((await nextController.GetAllRecommendations(cancellationToken: TestContext.Current.CancellationToken)).Result);
         Assert.Equal(503, second.StatusCode);
         _mockEngine.Verify(engine => engine.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Once);
         _mockCache.Verify(cache => cache.SaveResults(It.IsAny<IReadOnlyList<RecommendationResult>>()), Times.Never);

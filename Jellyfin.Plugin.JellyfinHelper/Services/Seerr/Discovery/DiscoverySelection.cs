@@ -28,7 +28,7 @@ internal static class DiscoverySelection
 
         if (preserveSourceRank)
         {
-            return candidates.Take(count).ToList();
+            return candidates.Where(candidate => ScoringHelper.IsContentEligible(candidate.ScoringFeatures)).Take(count).ToList();
         }
 
         var remaining = candidates

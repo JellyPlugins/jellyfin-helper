@@ -250,9 +250,9 @@ internal static class TrainingFeatureComputer
                     ? ContentScoring.ComputeRecencyScore(minDate, predictionTime)
                     : 0.5,
             LanguageAffinity = ComputeLanguageAffinityFromCache(mostRecent?.AudioLanguages ?? [], languageProfile),
-            HasAudioLanguageEvidence = HasLanguageEvidence(mostRecent?.AudioLanguages, languageProfile.LanguageProfile.Count, mostRecent?.HasAudioLanguageMetadata),
+            HasAudioLanguageEvidence = HasLanguageEvidence(mostRecent?.AudioLanguages, languageProfile.LanguageProfile, mostRecent?.HasAudioLanguageMetadata),
             SubtitleLanguageAffinity = ComputeSubtitleLanguageAffinityFromCache(mostRecent?.SubtitleLanguages ?? [], languageProfile),
-            HasSubtitleLanguageEvidence = HasLanguageEvidence(mostRecent?.SubtitleLanguages, languageProfile.SubtitleLanguageProfile.Count, mostRecent?.HasSubtitleLanguageMetadata),
+            HasSubtitleLanguageEvidence = HasLanguageEvidence(mostRecent?.SubtitleLanguages, languageProfile.SubtitleLanguageProfile, mostRecent?.HasSubtitleLanguageMetadata),
             CollectionProgressionBoost = collectionProgressionBoost,
             FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(episodes.Select(episode => episode.TmdbCollectionId).FirstOrDefault(id => id > 0), seriesFranchise, preferredFranchises),
             ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity([.. seriesCountries], preferredCountries),
@@ -277,6 +277,9 @@ internal static class TrainingFeatureComputer
         features.GenreDominanceRatio = domRatio;
         features.GenreAffinityGap = affGap;
         credits.Apply(features, candidateCredits);
+        var neighbors = seriesMetadata?.Neighbors ?? BuildNeighborInputs(languageProfile, credits, producerMetadata, predictionTime);
+        features.ContentNearestNeighborScore = ComputeContentNearestNeighborFromCache(
+            genreList, credits.Keys(candidateCredits).ToArray(), producerKeys ?? [], neighbors.Genres, neighbors.People, neighbors.Studios);
 
         var contentFit = preparedContentFit ?? ContentFitProfile.Create(languageProfile, itemTagsLookup.GetValueOrDefault, episodeIds, metadataCutoff: predictionTime);
         var metadataAtPrediction = mostRecent?.TitleMetadata is { } metadata && metadata.FetchedAtUtc <= predictionTime ? metadata : null;
@@ -543,11 +546,11 @@ internal static class TrainingFeatureComputer
 
     /// <summary>Checks language-input availability without calling a sparse, unlabelled track list a genuine mismatch.</summary>
     /// <param name="languages">Captured normalized available languages, or null when unknown.</param>
-    /// <param name="personalLanguageCount">The number of evidenced personal language preferences.</param>
+    /// <param name="languageProfile">Actual choices and forced exposure, kept distinct.</param>
     /// <param name="hasMetadata">Whether every track's language was identified; null preserves legacy list provenance.</param>
     /// <returns>Whether the affinity is suitable as an observed ML coordinate.</returns>
-    internal static bool HasLanguageEvidence(IReadOnlyList<string>? languages, int personalLanguageCount, bool? hasMetadata = null)
-        => hasMetadata != false && personalLanguageCount > 0 && languages is { Count: > 0 }
+    internal static bool HasLanguageEvidence(IReadOnlyList<string>? languages, IDictionary<string, LanguageProfileEntry> languageProfile, bool? hasMetadata = null)
+        => hasMetadata != false && languageProfile.Values.Any(entry => entry is { ChosenCount: > 0 }) && languages is { Count: > 0 }
             && languages.All(language => LanguageIdentity.GetIso6391Code(language) is not null);
 
     /// <summary>
@@ -566,6 +569,12 @@ internal static class TrainingFeatureComputer
         IReadOnlySet<string> toleratedLangs,
         IDictionary<string, LanguageProfileEntry> languageProfile)
     {
+        if (!languageProfile.Values.Any(entry => entry is { ChosenCount: > 0 }))
+        {
+            // Forced exposure cannot establish a mismatch for an untried language.
+            return 0.5;
+        }
+
         var bestAffinity = 0.1;
         var chosenPrimary = PrimaryChosenLanguage(languageProfile, primaryLang);
 
@@ -626,6 +635,18 @@ internal static class TrainingFeatureComputer
             .Select(entry => entry.Key).OrderBy(language => language, StringComparer.OrdinalIgnoreCase).First();
     }
 
+    private static NeighborInputs BuildNeighborInputs(UserWatchProfile profile, CreditPreferenceProfile credits, IReadOnlyDictionary<Guid, TitleMetadataSnapshot?>? producers, DateTime predictionTime)
+    {
+        var rows = profile.WatchedItems.Where(row => row.HasMeaningfulInteraction()).ToArray();
+        return new NeighborInputs(
+            rows.Select(row => GenreNormalizer.Set(row.Genres)).ToList(),
+            rows.Select(row => credits.Keys(CreditPreferenceProfile.Resolve(row))).ToList(),
+            rows.Select(row => new HashSet<string>(ProducerEvidence.ForWatch(row, producers, predictionTime) ?? [], StringComparer.Ordinal)).ToList());
+    }
+
     /// <summary>One metadata boundary for aggregated historical series features; never an outcome label.</summary>
-    internal sealed record SeriesMetadata(ContentFitProfile? ContentFit = null, IReadOnlyDictionary<Guid, TitleMetadataSnapshot?>? ProducerMetadata = null, CreditPreferenceProfile? Credits = null, CreditMetadataSnapshot? CandidateCredits = null);
+    internal sealed record SeriesMetadata(ContentFitProfile? ContentFit = null, IReadOnlyDictionary<Guid, TitleMetadataSnapshot?>? ProducerMetadata = null, CreditPreferenceProfile? Credits = null, CreditMetadataSnapshot? CandidateCredits = null, NeighborInputs? Neighbors = null);
+
+    /// <summary>Aligned, already scoped historical neighbor facets; metadata is not reacquired per aggregate.</summary>
+    internal sealed record NeighborInputs(List<HashSet<string>> Genres, List<HashSet<string>> People, List<HashSet<string>> Studios);
 }

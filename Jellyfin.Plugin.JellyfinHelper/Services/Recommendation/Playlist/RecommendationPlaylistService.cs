@@ -427,6 +427,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             // without a recommendation playlist if creation fails.
             cancellationToken.ThrowIfCancellationRequested();
             var beforeCreation = GetOwnedPlaylistIds(result.UserId);
+            var legacyCleanupIds = beforeCreation.Where(id => EnsureCreationRecovery().AllowsLegacyDeletion(result.UserId, id)).ToHashSet();
             var ownerAtCreation = GetEnabledOwner(result.UserId);
             if (ownerAtCreation is null)
             {
@@ -480,7 +481,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             }
 
             // New playlist created - now safe to remove old playlists.
-            var removed = RemoveUserPlaylistsExcept(result.UserId, playlistResult.Id, cancellationToken);
+            var removed = RemoveUserPlaylistsExcept(result.UserId, playlistResult.Id, cancellationToken, legacyDeletionIds: legacyCleanupIds);
             syncResult.OldPlaylistsRemoved += removed;
             syncResult.PlaylistsCreated++;
             syncResult.TotalItemsAdded += addedItems;
@@ -599,7 +600,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             try
             {
                 using var lease = await _ownerOperations.EnterAsync(user.Id, cancellationToken).ConfigureAwait(false);
-                var removed = RemoveUserPlaylists(user.Id, cancellationToken);
+                var removed = RemoveUserPlaylists(user.Id, cancellationToken, removeAll: true);
                 totalRemoved += removed;
             }
             catch (OperationCanceledException)
@@ -996,9 +997,10 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The number of playlists removed.</returns>
     /// <param name="onlyIfDisabled">Rechecks live inactivity for disabled-user sweeps only.</param>
-    private int RemoveUserPlaylists(Guid userId, CancellationToken cancellationToken, bool onlyIfDisabled = false)
+    /// <param name="removeAll">True only for explicit remove-all, retaining the existing legacy-name policy.</param>
+    private int RemoveUserPlaylists(Guid userId, CancellationToken cancellationToken, bool onlyIfDisabled = false, bool removeAll = false)
     {
-        return RemoveUserPlaylistsExcept(userId, excludePlaylistId: null, cancellationToken, onlyIfDisabled);
+        return RemoveUserPlaylistsExcept(userId, excludePlaylistId: null, cancellationToken, onlyIfDisabled, removeAll: removeAll);
     }
 
     /// <summary>
@@ -1009,7 +1011,9 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         Guid userId,
         string? excludePlaylistId,
         CancellationToken cancellationToken,
-        bool onlyIfDisabled = false)
+        bool onlyIfDisabled = false,
+        IReadOnlySet<Guid>? legacyDeletionIds = null,
+        bool removeAll = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var user = _userManager.GetUserById(userId);
@@ -1039,7 +1043,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (!IsUserManagedPlaylist(playlist, userId, expectedName))
+            if (!IsUserManagedPlaylist(playlist, userId, expectedName, legacyDeletionIds, removeAll))
             {
                 continue;
             }
@@ -1064,9 +1068,10 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         return removed;
     }
 
-    private static bool IsUserManagedPlaylist(BaseItem item, Guid userId, string expectedName)
+    private bool IsUserManagedPlaylist(BaseItem item, Guid userId, string expectedName, IReadOnlySet<Guid>? legacyDeletionIds, bool removeAll)
         => !IsPreservedPlaylist(item) && !(item is MediaBrowser.Controller.Playlists.Playlist owned && owned.OwnerUserId != Guid.Empty && owned.OwnerUserId != userId)
-            && (IsManagedPlaylistName(item, expectedName) || HasManagedOwner(item, userId));
+            && (HasManagedOwner(item, userId) || (IsManagedPlaylistName(item, expectedName)
+                && (removeAll || legacyDeletionIds?.Contains(item.Id) == true || EnsureCreationRecovery().AllowsLegacyDeletion(userId, item.Id))));
 
     private static Guid? ParseExcludedPlaylistId(string? playlistId)
         => Guid.TryParse(playlistId, out var id) ? id : null;
@@ -1171,6 +1176,11 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     {
         try
         {
+            if (!_unmarkedReplacements.TryGetValue(receipt.Key, out var currentOwner) || currentOwner != receipt.Value)
+            {
+                return (true, false);
+            }
+
             var item = _libraryManager.GetItemById(receipt.Key);
             var owned = item is MediaBrowser.Controller.Playlists.Playlist playlist && playlist.OwnerUserId == receipt.Value;
             if (owned && !HasCreationProof(receipt.Key, receipt.Value, item))
@@ -1204,7 +1214,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         {
             cancellationToken.ThrowIfCancellationRequested();
             using var lease = _ownerOperations.TryEnter(receipt.Value);
-            if (lease is null)
+            if (lease is null || !IsVerifiedInactiveOwner(receipt.Value))
             {
                 continue;
             }

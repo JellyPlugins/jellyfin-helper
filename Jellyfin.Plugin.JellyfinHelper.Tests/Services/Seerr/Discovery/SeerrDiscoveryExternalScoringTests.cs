@@ -52,6 +52,28 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     private int _activeDelayedDetails;
     private int _maxConcurrentDelayedDetails;
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RejectedMetadataDropsOnlyLabelsProjectedFromThatSameObservation(bool projected)
+    {
+        var metadata = new TitleMetadataCache();
+        var service = CreateService(titleMetadataCache: metadata);
+        var original = new ExternalDiscoveryCandidate
+        {
+            TmdbId = 77, MediaType = "tv", SourceGenres = ["independent label"], SourceGenresFromMetadata = projected,
+            TitleMetadata = new TitleMetadataSnapshot { TmdbId = 78, MediaType = "tv", Source = "trakt", SourceGenres = ["independent label"], FetchedAtUtc = DateTime.UtcNow }
+        };
+        var flags = BindingFlags.Static | BindingFlags.Instance | BindingFlags.NonPublic;
+        var candidate = (TmdbDiscoverItem)typeof(SeerrDiscoveryService).GetMethod("ToTmdbItem", flags)!.Invoke(null, [original])!;
+        Assert.Equal(original.SourceGenres, candidate.SourceGenres);
+        typeof(SeerrDiscoveryService).GetMethod("ApplySharedCandidateMetadata", flags)!.Invoke(service, [candidate, Plugin.Instance!.Configuration, null]);
+        Assert.Null(candidate.TitleMetadata);
+        Assert.Equal(projected ? null : original.SourceGenres, candidate.SourceGenres);
+        Assert.Equal(new[] { "independent label" }, original.SourceGenres);
+        Assert.NotNull(original.TitleMetadata);
+    }
+
     // The DiscoveryCacheService created by the most recent CreateService call, so a test can seed the user's
     // own cached recommendations (the source the own-recommendation exclusion reads).
     private DiscoveryCacheService? _lastCache;
@@ -166,22 +188,30 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
             RetryTimeProvider = clock,
             OpenFeedbackRead = path => { if (fail) throw new IOException("unavailable initial read"); return File.OpenRead(path); }
         };
-        Assert.Throws<IOException>(() => store.RecordRequested(user, 77, "movie"));
-        Assert.Contains((77, "movie"), store.GetPendingRequestedItems(user));
-        SetupProfile(user);
-        var service = CreateService(feedbackStoreOverride: store);
-        var cached = new DiscoveryResult { UserId = user, GeneratedAt = DateTime.UtcNow.AddDays(-1), Recommendations = [new() { TmdbId = 77, MediaType = "movie" }, new() { TmdbId = 700, MediaType = "tv" }, new() { TmdbId = 78, MediaType = "movie" }] };
-        var withheld = service.FilterConsumedItems(user, cached);
-        Assert.Empty(withheld.Recommendations);
-        Assert.Equal(cached.GeneratedAt, withheld.GeneratedAt);
-        Assert.Equal(3, cached.Recommendations.Count);
-        Assert.Null(await service.ScoreExternalCandidatesAsync(user, [Candidate(78)], TestContext.Current.CancellationToken));
-        Assert.Equal(0, _detailCalls);
-        fail = false;
-        clock.ExpireDeadlines();
-        await FeedbackWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
-        Assert.Equal(78, Assert.Single(service.FilterConsumedItems(user, cached).Recommendations).TmdbId);
-        Assert.Equal(3, cached.Recommendations.Count);
+        try
+        {
+            Assert.Throws<IOException>(() => store.RecordRequested(user, 77, "movie"));
+            Assert.Contains((77, "movie"), store.GetPendingRequestedItems(user));
+            SetupProfile(user);
+            var service = CreateService(feedbackStoreOverride: store);
+            var cached = new DiscoveryResult { UserId = user, GeneratedAt = DateTime.UtcNow.AddDays(-1), Recommendations = [new() { TmdbId = 77, MediaType = "movie" }, new() { TmdbId = 700, MediaType = "tv" }, new() { TmdbId = 78, MediaType = "movie" }] };
+            var withheld = service.FilterConsumedItems(user, cached);
+            Assert.Empty(withheld.Recommendations);
+            Assert.Equal(cached.GeneratedAt, withheld.GeneratedAt);
+            Assert.Equal(3, cached.Recommendations.Count);
+            Assert.Null(await service.ScoreExternalCandidatesAsync(user, [Candidate(78)], TestContext.Current.CancellationToken));
+            Assert.Equal(0, _detailCalls);
+            fail = false;
+            clock.ExpireDeadlines();
+            await FeedbackWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.Equal(78, Assert.Single(service.FilterConsumedItems(user, cached).Recommendations).TmdbId);
+            Assert.Equal(3, cached.Recommendations.Count);
+        }
+        finally
+        {
+            store.Dispose();
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]
@@ -589,12 +619,14 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     {
         var user = Guid.NewGuid();
         var service = CreateService();
-        if (throws) _history.Setup(history => history.GetUserWatchProfile(user)).Throws(new IOException("test unavailable profile"));
+        if (throws) _history.Setup(history => history.GetCurrentMediaTarget(user)).Throws(new IOException("test unavailable aggregate"));
+        else _history.Setup(history => history.GetCurrentMediaTarget(user)).Returns((double?)null);
         var saved = MediaPool(user, .8);
         var delivered = service.FilterConsumedItems(user, saved);
         Assert.Null(delivered.TargetSeriesShare);
         Assert.Equal(.8, saved.TargetSeriesShare);
         Assert.Equal(saved.Recommendations, delivered.Recommendations);
+        _history.Verify(history => history.GetUserWatchProfile(It.IsAny<Guid>()), Times.Never);
         Assert.Equal(0, _detailCalls);
     }
 
@@ -1655,7 +1687,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     }
 
     [Fact]
-    public async Task ProviderGenreAliasRefreshRebuildsSemanticAudienceEvidenceBeforeFinalScoring()
+    public async Task ProviderGenreAliasRefreshRebuildsAudienceEligibilityBeforeFinalSelection()
     {
         var user = Guid.NewGuid();
         var alias = "animation alias " + Guid.NewGuid().ToString("N");
@@ -1668,12 +1700,11 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var before = GenreNormalizer.CatalogVersion;
         _detailById[101] = $$"""{"id":101,"genres":[{"id":16,"name":"{{alias}}"}],"keywords":[{"name":"preschool"},{"name":"children's television"}]}""";
         var result = await CreateService().ScoreExternalCandidatesAsync(user, [Candidate(101)], TestContext.Current.CancellationToken);
-        var delivered = Assert.Single(result!.Recommendations).ScoringFeatures!;
+        Assert.Null(result);
         Assert.True(GenreNormalizer.CatalogVersion > before);
         var genres = PreferenceBuilder.BuildGenrePreferenceVector(profile);
         var baseline = SimilarityComputer.ComputeGenreSimilarity(["Animation"], genres);
         var expected = ContentFitProfile.Create(profile).AdjustGenreSimilarity(baseline, ["Animation"], ["preschool", "children's television"], null, genres);
-        Assert.Equal(expected, delivered.GenreSimilarity, 12);
         Assert.Equal(baseline * .3, expected, 12);
     }
 

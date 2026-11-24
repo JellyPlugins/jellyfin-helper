@@ -512,6 +512,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         var dryRun = config.RecommendationsTaskMode == TaskMode.DryRun;
+        var generationSourceScope = UserSourceScope(config);
 
         _pluginLog.LogInfo(
             LogCategory,
@@ -525,6 +526,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var policyEpoch = (_watchHistoryService as WatchHistoryService)?.PolicyEpoch;
         var activeProfiles = _watchHistoryService.GetAllUserWatchProfiles().ToList();
         var enabledUsers = _watchHistoryService.GetAllUserIds();
+        if (enabledUsers is null)
+        {
+            _pluginLog.LogWarning(LogCategory, "Discovery roster is unavailable; retaining cached pools without generating partial results.", null, _logger);
+            return;
+        }
+
+        var enabled = enabledUsers.ToHashSet();
+        activeProfiles.RemoveAll(profile => !enabled.Contains(profile.UserId));
 
         if (activeProfiles.Count == 0)
         {
@@ -600,7 +609,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
         }
 
-        // Persist or log
+        await PersistGenerationOutcomeAsync(dryRun, allResults, carriedForwardUsers, excludedTmdbIds, exclusionScope, generationSourceScope, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task PersistGenerationOutcomeAsync(bool dryRun, List<DiscoveryResult> allResults, HashSet<Guid> carriedForwardUsers, HashSet<(int TmdbId, string MediaType)> excludedTmdbIds, ExclusionCommitStamp? exclusionScope, string? generationSourceScope, CancellationToken cancellationToken)
+    {
         if (dryRun)
         {
             _pluginLog.LogInfo(
@@ -610,7 +623,19 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
         else
         {
-            await PersistValidatedResultsAsync(allResults, carriedForwardUsers, snapshots => FilterCarriedPoolsAtCommit(snapshots, carriedForwardUsers, excludedTmdbIds, exclusionScope), cancellationToken).ConfigureAwait(false);
+            await PersistValidatedResultsAsync(
+                allResults,
+                carriedForwardUsers,
+                snapshots =>
+                {
+                    if (UserSourceScope(Plugin.Instance?.Configuration) != generationSourceScope)
+                    {
+                        throw new IOException("The Seerr source changed before Discovery generation could commit.");
+                    }
+
+                    FilterCarriedPoolsAtCommit(snapshots, carriedForwardUsers, excludedTmdbIds, exclusionScope);
+                },
+                cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -857,7 +882,15 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 return false;
             }
 
-            if (!await _feedbackStore.RecordRequestedAsync(jellyfinUserId, tmdbId, mediaType, cancellationToken).ConfigureAwait(false))
+            if (UserSourceScope(Plugin.Instance?.Configuration) != sourceScope)
+            {
+                return false;
+            }
+
+            var recorded = _feedbackStore is DiscoveryFeedbackStore original
+                ? await original.RecordRequestedForSourceAsync(jellyfinUserId, tmdbId, mediaType, sourceScope, cancellationToken).ConfigureAwait(false)
+                : await _feedbackStore.RecordRequestedAsync(jellyfinUserId, tmdbId, mediaType, cancellationToken).ConfigureAwait(false);
+            if (!recorded)
             {
                 return false;
             }
@@ -1237,7 +1270,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
-        var requestParams = new SeerrRequestParams(tmdbId, mediaType, seerrUserId, serverId, profileId, rootFolder, submission.SourceScope);
+        var requestParams = new SeerrRequestParams(tmdbId, mediaType, seerrUserId, serverId, profileId, rootFolder, submission.SourceScope)
+        {
+            BeforeSend = submission.BeforeSend,
+            SendStarted = submission.SendStarted
+        };
         var key = MetadataCacheKey(baseUri, apiKey, $"api/v1/{mediaType}/{tmdbId}");
         return await _requestCoordinator.ExecuteAsync(
             key,
@@ -1316,6 +1353,15 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 "application/json");
 
             using var request = BuildRequest(HttpMethod.Post, baseUri, "api/v1/request", apiKey, content);
+            cancellationToken.ThrowIfCancellationRequested();
+            p.BeforeSend?.Invoke();
+            cancellationToken.ThrowIfCancellationRequested();
+            if (UserSourceScope(Plugin.Instance?.Configuration) != p.SourceScope)
+            {
+                return new(false, "Seerr configuration changed while original submission evidence was being persisted. Please retry.");
+            }
+
+            p.SendStarted?.Invoke();
             using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
 
             // Seerr reports duplicate creates as 409, and TV requests with no new seasons as 202.
@@ -2816,14 +2862,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // 0 / negative / >9999 year, and letting that reach the constructor would throw and sink the whole
         // list. An out-of-range year is treated as no date, so the rest of the item still scores.
         var yearForDate = c.Year is >= 1 and <= 9999 ? c.Year : null;
-        return new TmdbDiscoverItem
+        var item = new TmdbDiscoverItem
         {
             Id = c.TmdbId,
             MediaType = isTv ? "tv" : MediaTypeMovie,
             Title = isTv ? null : c.Title,
             Name = isTv ? c.Title : null,
             GenreIds = [.. c.GenreIds],
-            SourceGenres = c.SourceGenres?.ToArray(),
+            SourceGenres = c.SourceGenresFromMetadata ? null : c.SourceGenres?.ToArray(),
             TitleMetadata = c.TitleMetadata,
             VoteAverageValue = c.VoteAverageValue,
             PopularityValue = c.PopularityValue,
@@ -2835,6 +2881,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             TraktSlug = c.TraktSlug,
             SourceRank = c.SourceRank,
         };
+        if (c.SourceGenresFromMetadata)
+        {
+            item.ProjectSourceGenres(c.SourceGenres);
+        }
+
+        return item;
     }
 
     /// <summary>
@@ -4777,7 +4829,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return ("reasonGenre", matchedGenre);
         }
 
-        if (features.RecencyScore > ReasonRecencyThreshold && features.CombinedCriticScore > ReasonCriticThreshold)
+        var hasRating = features.HasRatingMetadata ?? candidate.HasRatingMetadata;
+        var hasPopularity = features.HasPopularityMetadata ?? candidate.HasPopularityMetadata;
+        if (hasRating && features.RecencyScore > ReasonRecencyThreshold && features.CombinedCriticScore > ReasonCriticThreshold)
         {
             return ("reasonTrending", null);
         }
@@ -4785,12 +4839,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // Popularity and critic rating are distinct signals. Popularity is checked first by design: when a title
         // is both widely watched and well reviewed, "popular with other viewers" is the more relatable headline
         // and critical acclaim is the secondary note, so popularity dominates the single-line reason.
-        if (features.PopularityScore > ReasonPopularityThreshold)
+        if (hasPopularity && features.PopularityScore > ReasonPopularityThreshold)
         {
             return ("reasonPopularAmongViewers", null);
         }
 
-        if (features.CombinedCriticScore > ReasonCriticThreshold)
+        if (hasRating && features.CombinedCriticScore > ReasonCriticThreshold)
         {
             return ("reasonHighlyRated", null);
         }
@@ -4888,7 +4942,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         int? ServerId,
         int? ProfileId,
         string? RootFolder,
-        string? SourceScope);
+        string? SourceScope)
+    {
+        internal Action? BeforeSend { get; init; }
+
+        internal Action? SendStarted { get; init; }
+    }
 
     /// <summary>
     ///     Result of generating discovery for a single user: the status plus the fresh result (only set when
@@ -4896,7 +4955,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// </summary>
     private readonly record struct UserGenerationOutcome(UserGenerationStatus Status, DiscoveryResult? Result);
 
-    internal sealed record CapturedSubmission(int TmdbId, string MediaType, int? SeerrUserId, int? ServerId, int? ProfileId, string? RootFolder, string? SourceScope);
+    internal sealed record CapturedSubmission(int TmdbId, string MediaType, int? SeerrUserId, int? ServerId, int? ProfileId, string? RootFolder, string? SourceScope)
+    {
+        internal Action? BeforeSend { get; init; }
+
+        internal Action? SendStarted { get; init; }
+    }
 
     private sealed record ExclusionCommitStamp(string ArrScope, string? SeerrScope, string? Language, bool TraktAvailable, long? LibraryEpoch, (long Revision, DateTime CapturedAtUtc, DateTime ValidUntilUtc)? Metadata, HashSet<(int TmdbId, string MediaType)> ArrExclusions);
 

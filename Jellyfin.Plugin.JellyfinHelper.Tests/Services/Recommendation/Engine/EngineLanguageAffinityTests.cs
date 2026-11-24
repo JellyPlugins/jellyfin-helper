@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Model.Entities;
@@ -64,6 +65,25 @@ public sealed class EngineLanguageAffinityTests
         Assert.Equal(.5, TrainingFeatureComputer.ComputeLanguageAffinityFromCache(["en"], profile));
         Assert.Equal(.5, TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(["en"], profile));
         Assert.Null(Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine.FirstPreferredLanguage(["en"], profile));
+        foreach (var language in new[] { "en", "de" })
+        {
+            Assert.Equal(.5, TrainingFeatureComputer.ComputeLanguageAffinityFromCache([language], profile));
+            Assert.Equal(.5, TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache([language], profile));
+            Assert.False(TrainingFeatureComputer.HasLanguageEvidence([language], profile.LanguageProfile, true));
+            Assert.False(TrainingFeatureComputer.HasLanguageEvidence([language], profile.SubtitleLanguageProfile, true));
+        }
+
+        var unknown = new CandidateFeatures
+        {
+            LanguageAffinity = .5, SubtitleLanguageAffinity = .5,
+            HasAudioLanguageEvidence = TrainingFeatureComputer.HasLanguageEvidence(["de"], profile.LanguageProfile, true),
+            HasSubtitleLanguageEvidence = TrainingFeatureComputer.HasLanguageEvidence(["de"], profile.SubtitleLanguageProfile, true)
+        };
+        var means = Enumerable.Repeat(.7, CandidateFeatures.FeatureCount).ToArray();
+        Assert.Equal(.7, unknown.ToModelVector(means)[(int)FeatureIndex.LanguageAffinity]);
+        Assert.Equal(.7, unknown.ToModelVector(means)[(int)FeatureIndex.SubtitleLanguageAffinity]);
+        Assert.Equal(0, profile.LanguageProfile["en"].ChosenCount);
+        Assert.Equal(100, profile.LanguageProfile["en"].ForcedCount);
     }
 
     [Fact]

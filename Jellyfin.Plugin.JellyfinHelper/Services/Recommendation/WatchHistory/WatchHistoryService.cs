@@ -833,7 +833,7 @@ public sealed class WatchHistoryService : IWatchHistoryService, IDisposable
             profile.FavoriteCount++;
         }
 
-        if (item.CommunityRating.HasValue)
+        if (item.CommunityRating.HasValue && (userData.Played || userData.PlayCount > 0 || userData.PlaybackPositionTicks > 0 || userData.IsFavorite))
         {
             ratingSum += item.CommunityRating.Value;
             ratingCount++;

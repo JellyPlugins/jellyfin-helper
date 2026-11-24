@@ -45,6 +45,7 @@ public sealed class SeerrDiscoveryGenerationTests : IDisposable
             .Returns(() => new HttpClient(_handler, disposeHandler: false));
 
         _history = new Mock<IWatchHistoryService>();
+        _history.Setup(history => history.GetAllUserIds()).Returns(() => _history.Object.GetAllUserWatchProfiles().Select(profile => profile.UserId).ToArray());
         _history.Setup(h => h.GetAllUserWatchProfiles())
             .Returns(new Collection<UserWatchProfile>());
         _history.Setup(h => h.GetSeriesEpisodeCounts())
@@ -125,11 +126,10 @@ public sealed class SeerrDiscoveryGenerationTests : IDisposable
     }
 
     [Fact]
-    public async Task GenerateDiscoveryRecommendationsAsync_NoActiveUsers_SkipsFeedbackRecording()
+    public async Task GenerateDiscoveryRecommendationsAsync_EnabledUserWithEmptyProviderResults_SkipsFeedbackRecording()
     {
-        // BUG GUARD: users with zero plays and fewer than 3 favorites produce no
-        // preference signal. Task must skip them and NOT record shown-items for
-        // non-existent recommendations.
+        // An enabled user without taste may use cold-start retrieval, but an
+        // empty provider pool must not create generation feedback.
         Plugin.Instance!.Configuration.SeerrUrl = "https://seerr.example.com";
         Plugin.Instance!.Configuration.SeerrApiKey = "test-key";
         Plugin.Instance!.Configuration.RecommendationsTaskMode = TaskMode.Activate;
@@ -145,6 +145,7 @@ public sealed class SeerrDiscoveryGenerationTests : IDisposable
         };
         _history.Setup(h => h.GetAllUserWatchProfiles())
             .Returns(new Collection<UserWatchProfile> { quietUser });
+        _history.Setup(history => history.GetAllUserIds()).Returns([quietUser.UserId]);
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -256,7 +257,8 @@ public sealed class SeerrDiscoveryGenerationTests : IDisposable
         profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Series", TmdbId = 92, Played = true, Genres = ["unmapped-provider-a", "unmapped-provider-b", "unmapped-provider-c"] });
         // Dominant retrieval genres are still unmapped. The real minority
         // Animation evidence qualifies scoring; retrieval never grants a score boost.
-        var dominantGenres = PreferenceBuilder.BuildGenrePreferenceVector(profile).OrderByDescending(pair => pair.Value).Take(3).Select(pair => pair.Key);
+        var dominantGenres = PreferenceBuilder.BuildGenrePreferenceVector(profile).OrderByDescending(pair => pair.Value).Take(3).Select(pair => pair.Key).ToArray();
+        Assert.Equal(3, dominantGenres.Length);
         Assert.All(dominantGenres, genre => { Assert.Null(TmdbGenreMap.ToMovieTmdbId(genre)); Assert.Null(TmdbGenreMap.ToTvTmdbId(genre)); });
         _history.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
         var seeds = PersonalDiscoveryRetrieval.Seeds(profile);

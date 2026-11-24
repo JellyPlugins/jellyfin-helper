@@ -584,7 +584,8 @@ public sealed partial class EnsembleScoringStrategy
 
     private ProvisionalRetention? TryCalibrateRetainedProvisional(ChallengerContext context, TrainedCandidates candidates, ValidationBatch batch)
     {
-        if (_acceptedBundle is not { IsProvisional: true, Retired: false })
+        if (_acceptedBundle is not { IsProvisional: true, Retired: false }
+            || !FeatureDerivationContract.IsCompatible(context.Bounds.FeatureDerivationVersion, context.Incumbent.FeatureDerivationVersion))
         {
             return null;
         }
@@ -608,7 +609,7 @@ public sealed partial class EnsembleScoringStrategy
         var models = batch.Models with
         {
             Learned = new PenalizedPredictor(context.Incumbent.Learned, context.Bounds.Floor),
-            Neural = context.Incumbent.Neural is null ? null : new PenalizedPredictor(context.Incumbent.Neural, context.Bounds.Floor)
+            Neural = CompatibleRetainedNeural(context)
         };
         var calibration = EnsembleAdmissionEvaluator.EvaluateServingCalibration(batch.Calibration, models, reduced, batch.EvaluatedAt);
         if (calibration is not null && current.Neural > 0 && context.Incumbent.Neural is { HasTrainedParameters: true } && HasUsableNeuralCalibration(calibration))
@@ -680,6 +681,11 @@ public sealed partial class EnsembleScoringStrategy
 
         return null;
     }
+
+    private static PenalizedPredictor? CompatibleRetainedNeural(ChallengerContext context)
+        => context.Incumbent.Neural is { } retained && FeatureDerivationContract.IsCompatible(context.Bounds.FeatureDerivationVersion, retained.FeatureDerivationVersion)
+            ? new PenalizedPredictor(retained, context.Bounds.Floor)
+            : null;
 
     private static string ComputeOperatingInputDigest(IReadOnlyList<TrainingExample> fit, IReadOnlyList<TrainingExample> calibration, PromotionBounds bounds, NeuralScoringStrategy.PredictionSnapshot? neuralPrior)
     {
@@ -787,7 +793,7 @@ public sealed partial class EnsembleScoringStrategy
         if (context.Neural is { } challenger && challenger.Train(fit, calibration))
         {
             fittedNeural = challenger;
-            neural = challenger.CapturePredictionSnapshot();
+            neural = challenger.CapturePredictionSnapshot(context.Bounds.FeatureDerivationVersion);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -803,12 +809,15 @@ public sealed partial class EnsembleScoringStrategy
 
     private static NeuralScoringStrategy.PredictionSnapshot? ResolveNeuralTrainingPrior(ChallengerContext context)
     {
-        if (context.SharedNeuralPrior is { } supplied)
+        var prior = context.SharedNeuralPrior?.Prediction;
+        if (context.SharedNeuralPrior is null && context.Incumbent.Resolve(context.Bounds.Configuration.Maximum).Neural > 0)
         {
-            return supplied.Prediction;
+            prior = context.Incumbent.Neural;
         }
 
-        return context.Incumbent.Mixture.Neural > 0 ? context.Incumbent.Neural : null;
+        return prior is not null && FeatureDerivationContract.IsCompatible(context.Bounds.FeatureDerivationVersion, prior.FeatureDerivationVersion)
+            ? prior
+            : null;
     }
 
     private AdmissionModels BuildAdmissionModels(ChallengerContext context, TrainedCandidates candidates)
@@ -902,6 +911,7 @@ public sealed partial class EnsembleScoringStrategy
             {
                 Version = provisional is null ? 1 : 2,
                 FeatureDerivationVersion = FeatureDerivationContract.PublicationVersion(bounds.FeatureDerivationVersion, provisional is { RetainedParameters: true }, _acceptedBundle?.FeatureDerivationVersion ?? 0),
+                NeuralFeatureDerivationVersion = candidates.Neural?.FeatureDerivationVersion ?? 0,
                 IsProvisional = provisional is not null,
                 CalibrationLoss = provisional?.Calibration.MixtureLoss,
                 CalibrationTitleCount = provisional?.Calibration.Titles ?? 0,
@@ -1028,6 +1038,7 @@ public sealed partial class EnsembleScoringStrategy
             {
                 Version = previous.Version,
                 FeatureDerivationVersion = previous.FeatureDerivationVersion,
+                NeuralFeatureDerivationVersion = previous.NeuralFeatureDerivationVersion,
                 IsProvisional = previous.IsProvisional,
                 CalibrationLoss = previous.CalibrationLoss,
                 CalibrationTitleCount = previous.CalibrationTitleCount,
@@ -1171,7 +1182,7 @@ public sealed partial class EnsembleScoringStrategy
         }
 
         var learned = new LearnedScoringStrategy.PredictionSnapshot(bundle.Learned);
-        var neural = bundle.Neural is null ? null : new NeuralScoringStrategy.PredictionSnapshot(bundle.Neural);
+        var neural = bundle.Neural is null ? null : new NeuralScoringStrategy.PredictionSnapshot(bundle.Neural, bundle.NeuralFeatureDerivationVersion);
         var prediction = new AcceptedPrediction(_heuristic, learned, neural, bundle.Mixture, bundle.NeuralCap, bundle.FeatureDerivationVersion);
         var scorer = new PinnedMixturePredictor(prediction, context.Configuration.Maximum, context.Floor);
         var metrics = EnsembleAdmissionEvaluator.EvaluateFixedVersion(context.Calibration, heuristic, scorer, current, context.ReferenceTime);
@@ -1232,6 +1243,7 @@ public sealed partial class EnsembleScoringStrategy
             var restored = new AcceptedModelBundle
             {
                 FeatureDerivationVersion = original.FeatureDerivationVersion,
+                NeuralFeatureDerivationVersion = original.NeuralFeatureDerivationVersion,
                 Learned = original.Learned,
                 Neural = original.Neural,
                 Mixture = original.Mixture,
@@ -1317,7 +1329,7 @@ public sealed partial class EnsembleScoringStrategy
         var learned = LearnedScoringStrategy.FromAcceptedParameters(bundle.Learned);
         _acceptedLearnedTrainer = learned;
         _acceptedNeuralTrainer = _ownsNeural && bundle.Neural is not null ? NeuralScoringStrategy.FromParameters(bundle.Neural) : null;
-        var neural = bundle.Neural is null ? null : new NeuralScoringStrategy.PredictionSnapshot(bundle.Neural);
+        var neural = bundle.Neural is null ? null : new NeuralScoringStrategy.PredictionSnapshot(bundle.Neural, bundle.NeuralFeatureDerivationVersion);
         _acceptedPrediction = new AcceptedPrediction(_heuristic, learned.CapturePredictionSnapshot(), neural, bundle.Retired ? default : bundle.Mixture, bundle.NeuralCap, bundle.FeatureDerivationVersion);
         _acceptedBundle = bundle;
         _acceptanceLedgerRequired = bundle.AcceptanceLedgerRequired;

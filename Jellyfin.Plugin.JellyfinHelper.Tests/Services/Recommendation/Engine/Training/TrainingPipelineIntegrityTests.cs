@@ -365,7 +365,7 @@ public sealed class TrainingPipelineIntegrityTests
             Recommendations = [new RecommendedItem { ItemId = playedId, ItemType = "Movie", ScoringFeatures = features.Copy() }, new RecommendedItem { ItemId = exposedId, ItemType = "Movie", ScoringFeatures = features.Copy() }],
             TrainingContrasts = [new RecommendedItem { ItemId = contrastId, ItemType = "Movie", ScoringFeatures = features.Copy() }] };
         var profile = new UserWatchProfile { UserId = user, WatchedItems = [Watch(playedId, Prediction.AddDays(1), ["Drama"])] };
-        var built = TrainingDataBuilder.BuildExamples([result], [profile], CancellationToken.None);
+        var built = TrainingDataBuilder.BuildExamples([result], [profile], Prediction.AddDays(3), TestContext.Current.CancellationToken);
         Assert.Equal(1, built.RandomNegativeCount);
         Assert.All(built.Examples, example => { Assert.Equal(0.8, example.Features.LanguageAffinity); Assert.Equal(0.3, example.Features.SubtitleLanguageAffinity); });
         Assert.Single(built.Examples, example => example.IsObserved);
@@ -375,7 +375,7 @@ public sealed class TrainingPipelineIntegrityTests
         Assert.DoesNotContain(built.Examples, example => example.ObservationId == TrainingExample.CreateLibraryObservationId(user, contrastId));
         Assert.All(built.Examples, example => Assert.NotSame(features, example.Features));
         profile.WatchedItems.Add(Watch(contrastId, Prediction.AddDays(1), ["Drama"]));
-        Assert.Equal(1, TrainingDataBuilder.BuildExamples([result], [profile], CancellationToken.None).RandomNegativeCount);
+        Assert.Equal(1, TrainingDataBuilder.BuildExamples([result], [profile], Prediction.AddDays(3), TestContext.Current.CancellationToken).RandomNegativeCount);
     }
 
     [Theory]
@@ -413,7 +413,7 @@ public sealed class TrainingPipelineIntegrityTests
         var original = new CandidateFeatures { GenreSimilarity = 0, HasUserInteraction = false, LanguageAffinity = .5, SubtitleLanguageAffinity = .5, IsWeekend = Prediction.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday };
         var negative = new RecommendedItem { ItemId = Guid.NewGuid(), ItemType = "Movie", Genres = ["Action"], AudioLanguages = ["de"], SubtitleLanguages = ["de"], ScoringFeatures = original };
         var cached = new RecommendationResult { UserId = user, GeneratedAt = Prediction, Recommendations = [new RecommendedItem { ItemId = later.ItemId, ItemType = "Movie", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .7 } }, negative] };
-        var built = TrainingDataBuilder.BuildExamples([cached], [profile], CancellationToken.None);
+        var built = TrainingDataBuilder.BuildExamples([cached], [profile], Prediction.AddDays(3), TestContext.Current.CancellationToken);
         var contrast = Assert.Single(built.Examples, example => example.UserId == user && example.IsContrastSample);
 
         Assert.Equal(Prediction, contrast.GeneratedAtUtc);

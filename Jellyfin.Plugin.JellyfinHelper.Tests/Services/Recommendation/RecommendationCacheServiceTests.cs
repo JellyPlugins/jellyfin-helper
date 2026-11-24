@@ -85,7 +85,7 @@ public sealed class RecommendationCacheServiceTests : IDisposable
         var paths = new Mock<IApplicationPaths>();
         paths.SetupGet(value => value.DataPath).Returns(_tempDir);
         var reader = new RecommendationCacheService(paths.Object, new Mock<IPluginLogService>().Object, new Mock<ILogger<RecommendationCacheService>>().Object, library.Object, configService.Object, Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateVirtualItemDetector());
-        Assert.Equal(2, Assert.Single(reader.LoadResults()!).Recommendations.Count);
+        Assert.True(new HashSet<Guid>([allowed.Id, excluded.Id]).SetEquals(Assert.Single(reader.LoadResults()!).Recommendations.Select(item => item.ItemId)));
         config.ExcludedLibraries = "Excluded";
         var scoped = Assert.Single(reader.LoadResults()!);
         Assert.Equal(allowed.Id, Assert.Single(scoped.Recommendations).ItemId);

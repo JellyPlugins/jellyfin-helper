@@ -53,6 +53,7 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
             .Returns(() => new HttpClient(_handler, disposeHandler: false));
 
         _history = new Mock<IWatchHistoryService>();
+        _history.Setup(history => history.GetAllUserIds()).Returns(() => _history.Object.GetAllUserWatchProfiles().Select(profile => profile.UserId).ToArray());
         _history.Setup(h => h.GetSeriesEpisodeCounts()).Returns(new Dictionary<Guid, int>());
 
         _arr = new Mock<IArrIntegrationService>();

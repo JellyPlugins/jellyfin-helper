@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Api;
@@ -17,15 +18,94 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
-/// <summary>Generic provenance/cohort checks only; no model fitting, live requests or personal outcome labels.</summary>
+/// <summary>Generic provenance/cohort and synthetic model lifecycle checks; no live requests or personal outcome labels.</summary>
 public class FeatureDerivationContractTests
 {
     private static readonly DateTime Boundary = new(2026, 11, 23, 0, 0, 0, DateTimeKind.Utc);
     private static readonly JsonSerializerOptions NamedNumberOptions = new() { NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals };
 
     [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void PersonalCurrentFitCannotRelabelABorrowedOlderNeuralComponent(int priorVersion)
+    {
+        var neural = ConstantNeural(priorVersion);
+        var original = JsonSerializer.Serialize(neural.ExportParameters(), NamedNumberOptions);
+        var learned = LearnedScoringStrategy.FromAcceptedParameters(new() { Version = 6, Weights = new double[41], Bias = .85, TrainingGeneration = 1 });
+        var prior = new AcceptedPrediction(new HeuristicScoringStrategy(1), learned.CapturePredictionSnapshot(), neural, new AdmissionMixture(.3, .15), .3, priorVersion);
+        using var personal = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(1), null, null, .3, .75, 1, ownsNeural: false);
+        personal.InitializeOperatingPrior(prior);
+        personal.SetPinnedNeuralTrainingPrior(neural);
+        Assert.True(personal.TrainValidated(CurrentFittingExamples(300, 10), CurrentFittingExamples(100, 11), false, TestContext.Current.CancellationToken));
+        var operating = Assert.IsType<AcceptedPrediction>(personal.GetOperatingPrior());
+        Assert.Equal(CandidateFeatures.CurrentFeatureDerivationVersion, operating.FeatureDerivationVersion);
+        if (priorVersion == CandidateFeatures.CurrentFeatureDerivationVersion)
+        {
+            Assert.True(operating.Resolve(.75).Neural > 0);
+            Assert.Equal(priorVersion, operating.Neural!.FeatureDerivationVersion);
+            Assert.Equal(original, JsonSerializer.Serialize(operating.Neural.ExportParameters(), NamedNumberOptions));
+        }
+        else
+        {
+            Assert.Equal(0, operating.Resolve(.75).Neural);
+            Assert.Null(personal.GetAcceptedNeuralPrediction());
+            Assert.Equal(0, personal.GetDiagnosticsSnapshot(CandidateFeatures.CurrentFeatureDerivationVersion).NeuralShare);
+        }
+
+        Assert.Equal(original, JsonSerializer.Serialize(neural.ExportParameters(), NamedNumberOptions));
+        Assert.Equal(priorVersion, prior.FeatureDerivationVersion);
+        Assert.Equal(priorVersion, neural.FeatureDerivationVersion);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NeuralProvenanceSurvivesRestartAndMissingProvenanceNeverInheritsTheCompoundMarker(bool removeMarker)
+    {
+        var directory = Path.Join(Path.GetTempPath(), "opencode", "component-derivation-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var state = Path.Join(directory, "ensemble_state.json");
+        var neural = ConstantNeural(CandidateFeatures.CurrentFeatureDerivationVersion);
+        try
+        {
+            using (var personal = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(1), null, state, .3, .75, 1, ownsNeural: false))
+            {
+                personal.SetPinnedNeuralTrainingPrior(neural);
+                Assert.True(personal.TrainValidated(CurrentFittingExamples(300, 12), CurrentFittingExamples(100, 13), false, TestContext.Current.CancellationToken));
+            }
+
+            var path = AcceptedModelStore.GetBundlePath(state)!;
+            var saved = new AcceptedModelStore(state, null).Read()!;
+            Assert.Equal(CandidateFeatures.CurrentFeatureDerivationVersion, saved.NeuralFeatureDerivationVersion);
+            if (removeMarker)
+            {
+                var document = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+                document.Remove(nameof(AcceptedModelBundle.NeuralFeatureDerivationVersion));
+                File.WriteAllText(path, document.ToJsonString(NamedNumberOptions));
+            }
+
+            var before = File.ReadAllBytes(path);
+            using var restarted = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(1), null, state, .3, .75, 1, ownsNeural: false);
+            var diagnostics = restarted.GetDiagnosticsSnapshot(CandidateFeatures.CurrentFeatureDerivationVersion);
+            Assert.Equal(removeMarker ? 0 : saved.Mixture.Neural, diagnostics.NeuralShare, 12);
+            var restored = new AcceptedModelStore(state, null).Read()!;
+            Assert.Equal(removeMarker ? 0 : CandidateFeatures.CurrentFeatureDerivationVersion, restored.NeuralFeatureDerivationVersion);
+            Assert.Equal(JsonSerializer.Serialize(saved.Neural, NamedNumberOptions), JsonSerializer.Serialize(restored.Neural, NamedNumberOptions));
+            Assert.Equal(before, File.ReadAllBytes(path));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
     [InlineData(0, 0, true)]
     [InlineData(1, 1, true)]
+    [InlineData(2, 2, true)]
+    [InlineData(1, 2, false)]
+    [InlineData(2, 1, false)]
     [InlineData(1, 0, false)]
     [InlineData(0, 1, false)]
     [InlineData(-1, -1, false)]
@@ -43,6 +123,7 @@ public class FeatureDerivationContractTests
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
+    [InlineData(2)]
     public void RetainedPriorCannotApplyDifferentDerivationWeightsOrOffsets(int modelVersion)
     {
         var learned = LearnedScoringStrategy.FromAcceptedParameters(new LearnedScoringStrategy.WeightsData
@@ -52,20 +133,20 @@ public class FeatureDerivationContractTests
         var prior = new AcceptedPrediction(new HeuristicScoringStrategy(1), learned.CapturePredictionSnapshot(), null, new AdmissionMixture(.6, 0), 0, modelVersion);
         using var ensemble = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(1), null, null, .3, .75, 1, ownsNeural: false);
         ensemble.InitializeOperatingPrior(prior);
-        var current = new CandidateFeatures { FeatureDerivationVersion = 1, GenreSimilarity = .4, CombinedCriticScore = .5 };
+        var current = new CandidateFeatures { FeatureDerivationVersion = CandidateFeatures.CurrentFeatureDerivationVersion, GenreSimilarity = .4, CombinedCriticScore = .5 };
         var original = current.ToVector();
         var heuristic = ScoringHelper.ComputeContextualScore(HeuristicScoringStrategy.ScoreRaw(current), current, 1);
         var score = ensemble.Score(current);
-        if (modelVersion == 0)
+        if (modelVersion != CandidateFeatures.CurrentFeatureDerivationVersion)
         {
             Assert.Equal(heuristic, score, 12);
-            Assert.Equal(0, ensemble.GetDiagnosticsSnapshot(1).EffectiveAlpha);
+            Assert.Equal(0, ensemble.GetDiagnosticsSnapshot(CandidateFeatures.CurrentFeatureDerivationVersion).EffectiveAlpha);
             Assert.Equal(heuristic, prior.Score(current, .75, 1), 12);
         }
         else
         {
             Assert.True(score > heuristic);
-            Assert.Equal(.3, ensemble.GetDiagnosticsSnapshot(1).EffectiveAlpha);
+            Assert.Equal(.3, ensemble.GetDiagnosticsSnapshot(CandidateFeatures.CurrentFeatureDerivationVersion).EffectiveAlpha);
         }
 
         Assert.Equal(score, ensemble.ScoreWithOffset(current, .2), 12);
@@ -91,7 +172,7 @@ public class FeatureDerivationContractTests
         Assert.Equal(41, old.ToVector().Length);
         Assert.Equal(old.ToVector(), current.ToVector());
         Assert.DoesNotContain(nameof(CandidateFeatures.FeatureDerivationVersion), JsonSerializer.Serialize(old));
-        Assert.Equal(1, current.FeatureDerivationVersion);
+        Assert.Equal(CandidateFeatures.CurrentFeatureDerivationVersion, current.FeatureDerivationVersion);
     }
 
     [Theory]
@@ -119,12 +200,12 @@ public class FeatureDerivationContractTests
     public void CurrentCohort_DoesNotRelabelOrUseLegacyPadding()
     {
         var old = Example(1, 0, 1);
-        var current = Example(2, 1, 0);
+        var current = Example(2, CandidateFeatures.CurrentFeatureDerivationVersion, 0);
         var fitting = new[] { old, current };
-        var holdout = new[] { Example(3, 0, 0), Example(4, 1, 1) };
+        var holdout = new[] { Example(3, 0, 0), Example(4, CandidateFeatures.CurrentFeatureDerivationVersion, 1) };
         var version = FeatureDerivationContract.SelectTrainingVersion(fitting, holdout);
 
-        Assert.Equal(1, version);
+        Assert.Equal(CandidateFeatures.CurrentFeatureDerivationVersion, version);
         Assert.Same(current, Assert.Single(FeatureDerivationContract.SelectCohort(fitting, version)));
         Assert.Same(holdout[1], Assert.Single(FeatureDerivationContract.SelectCohort(holdout, version)));
         Assert.Equal(0, old.Features.FeatureDerivationVersion);
@@ -136,10 +217,10 @@ public class FeatureDerivationContractTests
     public void SparseCurrentCohort_IsNotPaddedByManyOlderTitles()
     {
         var old = Enumerable.Range(1, 100).Select(id => Example(id, 0, id % 2)).ToArray();
-        var current = Example(200, 1, 1);
+        var current = Example(200, CandidateFeatures.CurrentFeatureDerivationVersion, 1);
         var version = FeatureDerivationContract.SelectTrainingVersion(old.Append(current).ToArray(), []);
 
-        Assert.Equal(1, version);
+        Assert.Equal(CandidateFeatures.CurrentFeatureDerivationVersion, version);
         Assert.Same(current, Assert.Single(FeatureDerivationContract.SelectCohort(old.Append(current), version)));
         Assert.All(old, row => Assert.Equal(0, row.Features.FeatureDerivationVersion));
     }
@@ -162,6 +243,7 @@ public class FeatureDerivationContractTests
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
+    [InlineData(2)]
     public void UniformNaturalCohort_PreservesOrdinaryIndependentAdmission(int version)
     {
         var calibration = Samples(1, version);
@@ -176,13 +258,13 @@ public class FeatureDerivationContractTests
     [Fact]
     public void CurrentHomogeneousCohort_DoesNotInventRankingApproval()
     {
-        var calibration = Enumerable.Range(1, 30).Select(id => Example(id, 1, 1)).ToArray();
-        var acceptance = Enumerable.Range(101, 30).Select(id => Example(id, 1, 1)).ToArray();
+        var calibration = Enumerable.Range(1, 30).Select(id => Example(id, CandidateFeatures.CurrentFeatureDerivationVersion, 1)).ToArray();
+        var acceptance = Enumerable.Range(101, 30).Select(id => Example(id, CandidateFeatures.CurrentFeatureDerivationVersion, 1)).ToArray();
         var decision = EnsembleAdmissionEvaluator.Evaluate(calibration, acceptance, Models(), Boundary, .75, 0);
 
         Assert.False(decision.Accepted);
         Assert.Equal("HomogeneousObservedOutcomes", decision.Reason);
-        Assert.Equal(1, decision.FeatureDerivationVersion);
+        Assert.Equal(CandidateFeatures.CurrentFeatureDerivationVersion, decision.FeatureDerivationVersion);
     }
 
     [Fact]
@@ -194,18 +276,19 @@ public class FeatureDerivationContractTests
 
     [Theory]
     [InlineData(0, "Verified", false, "LegacyOrUnknownPrior")]
-    [InlineData(1, "Provisional", false, "Current")]
-    [InlineData(1, "GlobalPrior", false, "Current")]
-    [InlineData(1, "Verified", true, "Current")]
-    [InlineData(1, "ChoiceRanking", true, "Current")]
-    [InlineData(2, "Verified", false, "DifferentDerivationPrior")]
+    [InlineData(1, "Verified", false, "DifferentDerivationPrior")]
+    [InlineData(2, "Provisional", false, "Current")]
+    [InlineData(2, "GlobalPrior", false, "Current")]
+    [InlineData(2, "Verified", true, "Current")]
+    [InlineData(2, "ChoiceRanking", true, "Current")]
+    [InlineData(3, "Verified", false, "DifferentDerivationPrior")]
     public void Diagnostics_SeparateHistoricalLevelFromCurrentDerivationApproval(int version, string level, bool verified, string status)
     {
         var diagnostics = new EnsembleDiagnostics { ModelFeatureDerivationVersion = version, ValidationLevel = level };
         var response = EnsembleDiagnosticsResponse.FromDiagnostics(diagnostics);
 
         Assert.Equal(version, response.ModelFeatureDerivationVersion);
-        Assert.Equal(1, response.CurrentFeatureDerivationVersion);
+        Assert.Equal(CandidateFeatures.CurrentFeatureDerivationVersion, response.CurrentFeatureDerivationVersion);
         Assert.Equal(status, response.FeatureDerivationStatus);
         Assert.Equal(verified, response.HasCurrentFeatureDerivationRankingValidation);
     }
@@ -221,6 +304,7 @@ public class FeatureDerivationContractTests
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
+    [InlineData(2)]
     public void GlobalPrior_PropagatesMarkerWithoutChangingItsMixtureOrClaimingPersonalValidation(int version)
     {
         var learned = LearnedScoringStrategy.FromAcceptedParameters(new LearnedScoringStrategy.WeightsData
@@ -291,7 +375,7 @@ public class FeatureDerivationContractTests
         var features = ExternalCandidateFeatureBuilder.Build(new TmdbDiscoverItem { Id = 1, MediaType = "movie", GenreIds = [18] },
             preferences, new HashSet<string>(), 0, exposure, profile);
 
-        Assert.Equal(1, features.FeatureDerivationVersion);
+        Assert.Equal(CandidateFeatures.CurrentFeatureDerivationVersion, features.FeatureDerivationVersion);
         Assert.Equal(41, features.ToVector().Length);
     }
 
@@ -315,7 +399,7 @@ public class FeatureDerivationContractTests
         var built = TrainingDataBuilder.BuildExamples([result], new Collection<UserWatchProfile> { profile }, Boundary.AddDays(8), CancellationToken.None);
         var example = Assert.Single(built.Examples);
 
-        Assert.Equal(capturedVersion < 0 ? 1 : capturedVersion, example.Features.FeatureDerivationVersion);
+        Assert.Equal(capturedVersion < 0 ? CandidateFeatures.CurrentFeatureDerivationVersion : capturedVersion, example.Features.FeatureDerivationVersion);
         Assert.Equal(Boundary, example.GeneratedAtUtc);
         Assert.Equal(Boundary, result.GeneratedAt);
         if (captured is not null)
@@ -328,6 +412,25 @@ public class FeatureDerivationContractTests
 
     private static TrainingExample[] Samples(int start, int version)
         => Enumerable.Range(start, 30).Select(id => Example(id, version, id % 2)).ToArray();
+
+    private static TrainingExample[] CurrentFittingExamples(int count, short partition)
+        => Enumerable.Range(1, count).Select(index => new TrainingExample
+        {
+            Features = new CandidateFeatures { FeatureDerivationVersion = CandidateFeatures.CurrentFeatureDerivationVersion, GenreSimilarity = .1, CombinedCriticScore = .1, RecencyScore = .1, YearProximityScore = .1 },
+            UserId = new Guid(9000, 0, 0, new byte[8]), ObservationId = new Guid(index, partition, 0, new byte[8]),
+            HasStableObservationId = true, IsObserved = true, Label = .85, SampleWeight = 1, GeneratedAtUtc = DateTime.UtcNow.AddDays(-1)
+        }).ToArray();
+
+    private static NeuralScoringStrategy.PredictionSnapshot ConstantNeural(int version) => new(
+        new NeuralScoringStrategy.NeuralWeightsData
+        {
+            Version = 6, TrainingGeneration = 1, BiasOutput = Math.Log(.85 / .15),
+            WeightsIH = new double[NeuralScoringStrategy.Hidden1Size * CandidateFeatures.FeatureCount], BiasH1 = new double[NeuralScoringStrategy.Hidden1Size],
+            WeightsH1H2 = new double[NeuralScoringStrategy.Hidden2Size * NeuralScoringStrategy.Hidden1Size], BiasH2 = new double[NeuralScoringStrategy.Hidden2Size],
+            WeightsH2H3 = new double[NeuralScoringStrategy.Hidden3Size * NeuralScoringStrategy.Hidden2Size], BiasH3 = new double[NeuralScoringStrategy.Hidden3Size],
+            WeightsH3H4 = new double[NeuralScoringStrategy.Hidden4Size * NeuralScoringStrategy.Hidden3Size], BiasH4 = new double[NeuralScoringStrategy.Hidden4Size], WeightsH4O = new double[NeuralScoringStrategy.Hidden4Size]
+        },
+        version);
 
     private static TrainingExample Example(int id, int version, double label)
         => new()

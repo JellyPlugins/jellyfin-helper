@@ -316,10 +316,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         {
             var watched = new HashSet<Guid>(
                 profile.WatchedItems
-                    .Where(w => w.HasMeaningfulInteraction())
+                    .Where(w => w.HasPlaybackActivity() || w.IsFavorite)
                     .Select(w => w.ItemId));
 
-            foreach (var w in profile.WatchedItems.Where(w => w.SeriesId.HasValue && w.HasMeaningfulInteraction()))
+            foreach (var w in profile.WatchedItems.Where(w => w.SeriesId.HasValue && (w.HasPlaybackActivity() || w.IsFavorite)))
             {
                 watched.Add(w.SeriesId!.Value);
             }
@@ -369,12 +369,15 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
         var profiledUsers = allProfiles.Select(profile => profile.UserId).ToHashSet();
-        if ((_watchHistoryService.GetAllUserIds() ?? []).Any(user => !profiledUsers.Contains(user)))
+        var enabledUsers = (_watchHistoryService.GetAllUserIds() ?? throw new InvalidOperationException("The enabled user roster is unavailable; recommendation batch publication is deferred.")).ToHashSet();
+        if (enabledUsers.Any(user => !profiledUsers.Contains(user)))
         {
             // Returning a partial batch would overwrite the last valid cache and
             // erase recommendations for an enabled user whose profile merely failed.
             throw new InvalidOperationException("An enabled user's watch profile is unavailable; recommendation batch publication is deferred.");
         }
+
+        allProfiles = new Collection<UserWatchProfile>(allProfiles.Where(profile => enabledUsers.Contains(profile.UserId)).ToList());
 
         var libraryScope = GetCandidateLibraryScope();
         var (candidates, seriesEpisodeCounts) = LoadCandidateItems(libraryScope, out var allMovies, out _);
@@ -1614,14 +1617,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 context.WatchedPeopleSets,
                 context.WatchedStudioSets),
             LanguageAffinity = languageAffinity,
-            HasAudioLanguageEvidence = Training.TrainingFeatureComputer.HasLanguageEvidence(candidateMediaLanguages.Audio, context.Profile.LanguageProfile.Count, candidateMediaLanguages.AudioKnown),
+            HasAudioLanguageEvidence = Training.TrainingFeatureComputer.HasLanguageEvidence(candidateMediaLanguages.Audio, context.Profile.LanguageProfile, candidateMediaLanguages.AudioKnown),
             CollectionProgressionBoost = ComputeCollectionProgressionBoostLive(
                 context.CandidateBoxSetLookup.TryGetValue(candidate.Id, out var candidateBoxSets) ? candidateBoxSets : [],
                 context.WatchedBoxSetCounts),
             // Subtitle language affinity: reuses the already-resolved subtitle languages
             // from the single ResolveMediaLanguages() call above (no second stream scan).
             SubtitleLanguageAffinity = ComputeSubtitleLanguageAffinityFromStreams(context.Profile, candidateMediaLanguages.Subtitles),
-            HasSubtitleLanguageEvidence = Training.TrainingFeatureComputer.HasLanguageEvidence(candidateMediaLanguages.Subtitles, context.Profile.SubtitleLanguageProfile.Count, candidateMediaLanguages.SubtitlesKnown),
+            HasSubtitleLanguageEvidence = Training.TrainingFeatureComputer.HasLanguageEvidence(candidateMediaLanguages.Subtitles, context.Profile.SubtitleLanguageProfile, candidateMediaLanguages.SubtitlesKnown),
             MediaLanguageSampleItemId = candidateMediaLanguages.SampleItemId,
             MediaLanguageSampledAtUtc = candidateMediaLanguages.AcquiredAtUtc,
             MediaLanguageIsEpisodeSample = candidateMediaLanguages.IsEpisodeSample,

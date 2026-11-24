@@ -64,6 +64,37 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task FreshGenerationCannotPersistAWithdrawnUserOrAnOldSeerrSource(bool sourceChanges)
+    {
+        var profile = NewProfile();
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        _history.Setup(history => history.GetAllUserIds()).Returns(sourceChanges ? [profile.UserId] : []);
+        _history.Setup(history => history.GetUserWatchProfile(profile.UserId)).Returns(profile);
+        RegisterGenreMovieResults(28, Enumerable.Range(601, 30).Select(id => Candidate(id, 8)).ToArray());
+        if (sourceChanges)
+        {
+            var previous = new DiscoveryResult { UserId = profile.UserId, GeneratedAt = DateTime.UtcNow.AddDays(-1), Recommendations = [new() { TmdbId = 777, MediaType = "movie" }] };
+            Assert.True(await _cache.SaveAsync([previous], TestContext.Current.CancellationToken));
+            _cache.BeforeSaveWait = () => Plugin.Instance!.Configuration.SeerrUrl = "https://other.example.test";
+        }
+
+        await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
+        if (sourceChanges)
+        {
+            Assert.Equal(777, Assert.Single(Assert.Single(await _cache.LoadAsync(TestContext.Current.CancellationToken)).Recommendations).TmdbId);
+        }
+        else
+        {
+            Assert.Empty(await _cache.LoadAsync(TestContext.Current.CancellationToken));
+            Assert.Empty(_handler.Requests);
+        }
+
+        _feedbackStore.Verify(store => store.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task AConfirmedDismissalCannotReturnThroughCachedBackfillOrTheNextFullGeneration(bool persistenceFails)
     {
         var directory = Path.Join(Path.GetTempPath(), "jfh-dismissal-generation-" + Guid.NewGuid().ToString("N"));
@@ -485,6 +516,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             .Returns(() => new HttpClient(_handler, disposeHandler: false));
 
         _history = new Mock<IWatchHistoryService>();
+        _history.Setup(history => history.GetAllUserIds()).Returns(() => _history.Object.GetAllUserWatchProfiles().Select(profile => profile.UserId).ToArray());
         _history.Setup(h => h.GetSeriesEpisodeCounts())
             .Returns(new Dictionary<Guid, int>());
 

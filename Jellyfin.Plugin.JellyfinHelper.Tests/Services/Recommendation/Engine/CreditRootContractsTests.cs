@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -15,6 +16,34 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 public sealed class CreditRootContractsTests
 {
     private static readonly DateTime Clock = new(2026, 11, 20, 20, 0, 0, DateTimeKind.Utc);
+
+    [Theory]
+    [InlineData(false, false, .8)]
+    [InlineData(true, false, .8)]
+    [InlineData(true, true, .5)]
+    public void LegacyNeighbourAndDirectPeopleUseOneResolvedPredictionTimeCreditSource(bool dtoCredits, bool future, double expectedNeighbour)
+    {
+        var user = Guid.NewGuid();
+        var target = Guid.NewGuid();
+        var prior = Row(Guid.NewGuid(), Clock.AddDays(-3));
+        var targetCredits = Snapshot(target);
+        if (future) targetCredits = targetCredits with { Cast = targetCredits.Cast! with { AcquiredAtUtc = Clock.AddDays(1) } };
+        var rec = new RecommendedItem { ItemId = target, ItemType = "Movie", Genres = ["Drama"], DateCreated = Clock.AddDays(-5), Credits = dtoCredits ? targetCredits : null };
+        var previous = new RecommendationResult { UserId = user, GeneratedAt = Clock, Recommendations = [rec] };
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = [prior] };
+        var metadata = new LibraryItemMetadata(new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<Guid>>())
+        {
+            Credits = new Dictionary<Guid, CreditMetadataSnapshot> { [prior.ItemId] = prior.Credits!, [target] = Snapshot(target) }
+        };
+        var example = TrainingDataBuilder.BuildExamples([previous], [profile], null, null, null, metadata, null, TestContext.Current.CancellationToken).Examples
+            .Single(row => row.ObservationId == TrainingExample.CreateLibraryObservationId(user, target) && row.GeneratedAtUtc == Clock);
+        Assert.Equal(expectedNeighbour, example.Features.ContentNearestNeighborScore, 12);
+        Assert.Equal(!future, example.Features.HasPeopleMetadata);
+        Assert.Equal(future ? 0 : .2, example.Features.PeopleSimilarity, 12);
+        Assert.Equal(Clock, example.GeneratedAtUtc);
+        Assert.Equal(dtoCredits ? targetCredits : null, rec.Credits);
+        Assert.Null(rec.ScoringFeatures);
+    }
 
     [Fact]
     public void OrganicCapturedCreditsDoNotDependOnRecommendationPublication()
@@ -46,6 +75,7 @@ public sealed class CreditRootContractsTests
         Assert.True(examples.Single().Features.PeopleSimilarity > 0);
         Assert.True(examples.Single().Features.WriterAffinity > 0);
         Assert.Equal(1, examples.Single().Features.BillingWeightedPeople);
+        Assert.Equal(.8, examples.Single().Features.ContentNearestNeighborScore, 12);
     }
 
     [Fact]

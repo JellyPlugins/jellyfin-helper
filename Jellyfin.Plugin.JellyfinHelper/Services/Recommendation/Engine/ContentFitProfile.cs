@@ -239,7 +239,7 @@ internal sealed class ContentFitProfile
             AddProviderEvidence(title, cache.Normalized);
             // Metadata refresh is not renewed interest. Current explicit favorites
             // remain affirmative; dated playback confidence ages at the prediction boundary.
-            title.InterestConfidence = title.HasFavorite || title.Ratings.Count > 0 || !title.LatestPositiveAtUtc.HasValue
+            title.InterestConfidence = title.HasFavorite || title.HasUndatedPositivePlayback || title.Ratings.Count > 0 || !title.LatestPositiveAtUtc.HasValue
                 ? 1.0
                 : Math.Exp(-Math.Log(2) * Math.Max(0, (referenceTime - title.LatestPositiveAtUtc.Value).TotalDays) / EngineConstants.GenreDecayHalfLifeDays);
         }
@@ -254,6 +254,7 @@ internal sealed class ContentFitProfile
     {
         title.HasPositiveInteraction |= row.Played || row.IsFavorite || (row.UserRating is > 5 && double.IsFinite(row.UserRating.Value));
         title.HasFavorite |= row.IsFavorite;
+        title.HasUndatedPositivePlayback |= row.Played && !row.LastPlayedDate.HasValue;
         if ((row.Played || row.IsFavorite) && row.LastPlayedDate is { } playedAt
             && (!title.LatestPositiveAtUtc.HasValue || playedAt > title.LatestPositiveAtUtc.Value))
         {
@@ -725,6 +726,8 @@ internal sealed class ContentFitProfile
         internal bool HasPositiveInteraction { get; set; }
 
         internal bool HasFavorite { get; set; }
+
+        internal bool HasUndatedPositivePlayback { get; set; }
 
         internal DateTime? LatestPositiveAtUtc { get; set; }
 

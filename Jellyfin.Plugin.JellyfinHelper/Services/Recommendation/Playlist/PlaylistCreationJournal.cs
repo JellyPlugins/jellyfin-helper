@@ -24,6 +24,7 @@ internal sealed class PlaylistCreationJournal
     private readonly long _byteBudget;
     private readonly Lock _gate = new();
     private readonly Dictionary<Guid, Attempt> _entries = [];
+    private readonly Dictionary<Guid, IReadOnlySet<Guid>> _legacyRestrictedOwners = [];
     private readonly HashSet<Guid> _writingOwners = [];
     private long _bytes;
     private int _reservedNew;
@@ -57,7 +58,27 @@ internal sealed class PlaylistCreationJournal
     }
 
     internal Attempt Begin(Guid owner, IReadOnlySet<Guid> before)
-        => Save(new Attempt(Guid.NewGuid(), owner, before.Order().ToImmutableArray()), creating: true);
+    {
+        if (before.Count >= MaximumOwnerIds)
+        {
+            throw new IOException("The pre-create playlist inventory must leave room for one returned replacement.");
+        }
+
+        return Save(new Attempt(Guid.NewGuid(), owner, before.Order().ToImmutableArray()), creating: true);
+    }
+
+    /// <summary>A completed recovery never grants name-only deletion of an uninspected later host registration.</summary>
+    /// <param name="owner">The current owner.</param>
+    /// <param name="id">The exact item considered for legacy cleanup.</param>
+    /// <returns>Whether the original legacy policy still permits this already-inspected identity.</returns>
+    internal bool AllowsLegacyDeletion(Guid owner, Guid id)
+    {
+        lock (_gate)
+        {
+            return (!_legacyRestrictedOwners.TryGetValue(owner, out var inspected) || inspected.Contains(id))
+                && (!_entries.TryGetValue(owner, out var attempt) || attempt.BeforeIds.Contains(id));
+        }
+    }
 
     internal Attempt RecordReturned(Guid owner, Guid attemptId, Guid returned)
         => Save(Require(owner, attemptId) with { ReturnedId = returned }, creating: false);
@@ -68,6 +89,7 @@ internal sealed class PlaylistCreationJournal
     internal bool Complete(Guid owner, Guid attemptId)
     {
         Attempt current;
+        bool needsOwnerGuard;
         lock (_gate)
         {
             if (!_entries.TryGetValue(owner, out var value) || value.Id != attemptId)
@@ -81,10 +103,25 @@ internal sealed class PlaylistCreationJournal
             }
 
             current = value;
+            needsOwnerGuard = !_legacyRestrictedOwners.ContainsKey(owner);
         }
 
         try
         {
+            // Publish a durable owner restriction before releasing the original
+            // gate. Host registrations after the final inventory remain protected.
+            if (needsOwnerGuard)
+            {
+                var guard = GuardContents(current);
+                _write(GuardPathFor(owner), guard);
+                lock (_gate)
+                {
+                    _legacyRestrictedOwners.Add(owner, current.BeforeIds.ToHashSet());
+                    current = current with { ReservedBytes = current.ReservedBytes - Encoding.UTF8.GetByteCount(guard) };
+                    _entries[owner] = current;
+                }
+            }
+
             _delete(PathFor(owner));
             lock (_gate)
             {
@@ -134,9 +171,12 @@ internal sealed class PlaylistCreationJournal
             }
 
             previous = current?.ReservedBytes ?? 0;
+            reservation += _legacyRestrictedOwners.ContainsKey(attempt.Owner) ? 0 : Encoding.UTF8.GetByteCount(GuardContents(attempt));
             reservation = Math.Max(previous, reservation);
             growth = Math.Max(0, reservation - previous);
-            if ((creating && _entries.Count + _reservedNew >= MaximumAttempts) || _bytes + growth > _byteBudget || !_writingOwners.Add(attempt.Owner))
+            var ownerSlots = _legacyRestrictedOwners.Count + _entries.Keys.Count(owner => !_legacyRestrictedOwners.ContainsKey(owner)) + _reservedNew;
+            if ((creating && (_entries.Count + _reservedNew >= MaximumAttempts || (!_legacyRestrictedOwners.ContainsKey(attempt.Owner) && ownerSlots >= MaximumAttempts)))
+                || _bytes + growth > _byteBudget || !_writingOwners.Add(attempt.Owner))
             {
                 throw new IOException("The bounded playlist creation journal is unavailable or full.");
             }
@@ -179,6 +219,11 @@ internal sealed class PlaylistCreationJournal
 
     private string PathFor(Guid owner) => Path.Join(_directory, owner.ToString("N") + ".json");
 
+    private string GuardPathFor(Guid owner) => Path.Join(_directory, owner.ToString("N") + ".guard");
+
+    private static string GuardContents(Attempt attempt)
+        => attempt.Owner.ToString("N") + string.Concat(attempt.BeforeIds.Select(id => "\n" + id.ToString("N")));
+
     private static long MaximumStateBytes(Attempt attempt)
         => Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(attempt with { ReturnedId = attempt.Id, Marked = false }, JsonDefaults.Options));
 
@@ -207,6 +252,7 @@ internal sealed class PlaylistCreationJournal
                 throw new IOException("Playlist recovery path is not a directory.");
             }
 
+            LoadOwnerGuards();
             paths = _enumerate(_directory).Take(MaximumAttempts + 1).ToArray();
         }
         catch (Exception exception) when (!directoryObserved && exception is FileNotFoundException or DirectoryNotFoundException)
@@ -236,18 +282,64 @@ internal sealed class PlaylistCreationJournal
             }
 
             Validate(value);
-            var reservation = Math.Max(length, MaximumStateBytes(value));
-            if (_bytes + reservation > _byteBudget)
+            RegisterRestoredAttempt(value, path, length);
+        }
+    }
+
+    private void RegisterRestoredAttempt(Attempt value, string path, long length)
+    {
+        if (!_legacyRestrictedOwners.ContainsKey(value.Owner)
+            && _legacyRestrictedOwners.Count + _entries.Keys.Count(owner => !_legacyRestrictedOwners.ContainsKey(owner)) >= MaximumAttempts)
+        {
+            throw new IOException("Existing playlist owner guards and attempts exceed their shared owner limit.");
+        }
+
+        var reservation = Math.Max(length, MaximumStateBytes(value)) + (_legacyRestrictedOwners.ContainsKey(value.Owner) ? 0 : Encoding.UTF8.GetByteCount(GuardContents(value)));
+        if (_bytes + reservation > _byteBudget)
+        {
+            throw new IOException("Existing playlist creation attempts exceed their fully reserved lifecycle budget.");
+        }
+
+        if (Path.GetFileName(path) != value.Owner.ToString("N") + ".json" || !_entries.TryAdd(value.Owner, value with { FileBytes = length, ReservedBytes = reservation }))
+        {
+            throw new IOException("Playlist creation identities are inconsistent.");
+        }
+
+        _bytes += reservation;
+    }
+
+    private void LoadOwnerGuards()
+    {
+        foreach (var path in Directory.EnumerateFiles(_directory, "*.guard").Take(MaximumAttempts + 1))
+        {
+            var length = new FileInfo(path).Length;
+            if (_legacyRestrictedOwners.Count >= MaximumAttempts || length > MaximumEnvelopeBytes
+                || !Guid.TryParseExact(Path.GetFileNameWithoutExtension(path), "N", out var owner) || owner == Guid.Empty)
             {
-                throw new IOException("Existing playlist creation attempts exceed their fully reserved lifecycle budget.");
+                throw new IOException("Durable playlist cleanup ownership guards are unavailable or invalid.");
             }
 
-            if (Path.GetFileName(path) != value.Owner.ToString("N") + ".json" || !_entries.TryAdd(value.Owner, value with { FileBytes = length, ReservedBytes = reservation }))
+            var values = File.ReadAllText(path).Split('\n');
+            var inspected = new HashSet<Guid>();
+            if (values[0] != owner.ToString("N") || values.Length > MaximumOwnerIds + 1)
             {
-                throw new IOException("Playlist creation identities are inconsistent.");
+                throw new IOException("Durable playlist cleanup guard ownership or size is invalid.");
             }
 
-            _bytes += reservation;
+            foreach (var value in values.Skip(1))
+            {
+                if (!Guid.TryParseExact(value, "N", out var id) || id == Guid.Empty || !inspected.Add(id))
+                {
+                    throw new IOException("Durable playlist cleanup guard identities are invalid.");
+                }
+            }
+
+            _legacyRestrictedOwners.Add(owner, inspected);
+            _bytes += length;
+            if (_bytes > _byteBudget)
+            {
+                throw new IOException("Durable playlist cleanup guards exceed the bounded lifecycle budget.");
+            }
         }
     }
 

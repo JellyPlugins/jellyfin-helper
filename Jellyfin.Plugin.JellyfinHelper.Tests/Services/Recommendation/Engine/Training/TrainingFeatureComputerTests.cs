@@ -336,7 +336,7 @@ public class TrainingFeatureComputerTests
 
     public static TheoryData<string[], string?, string[], string[], string[], double> BestLanguageAffinityCases() => new()
     {
-        { [], null, [], [], [], 0.1 },
+        { [], null, [], [], [], 0.5 },
         { ["en"], "en", [], [], [], 1.0 },
         { ["EN"], "en", [], [], [], 1.0 },
         { ["de"], "en", ["de"], [], [], 0.85 },

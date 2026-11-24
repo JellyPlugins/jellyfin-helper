@@ -64,6 +64,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
     private readonly HashSet<Guid> _uncertainPreparedIntents = [];
     private readonly Dictionary<TitleKey, int> _pendingRequests = new();
     private readonly Dictionary<TitleKey, int> _pendingDismissals = new();
+    private readonly Dictionary<TitleKey, SortedDictionary<DateTime, int>> _pendingWatchTimes = [];
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger<DiscoveryFeedbackStore> _logger;
     private readonly long _sizeLimit = MaxFileSizeBytes;
@@ -273,13 +274,13 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             }
         }
 
-        PreparedJournalContaining(prepared.Id).UpdateIntent(prepared.Id, accepted: false, uncertain: true, ReceiptTimeProvider.GetUtcNow().UtcDateTime);
+        PreparedJournalContaining(prepared.Id).UpdateIntent(prepared.Id, accepted: false, uncertain: true, ReceiptTimeProvider.GetUtcNow().UtcDateTime, prepared.Attempt == Guid.Empty ? null : prepared.Attempt);
     }
 
     internal void AbandonPreparedRequest(PreparedRequest prepared)
         => FinishPreparedAttempt(prepared, submissionUncertain: false);
 
-    internal void FinishPreparedAttempt(PreparedRequest prepared, bool submissionUncertain)
+    internal void FinishPreparedAttempt(PreparedRequest prepared, bool submissionUncertain, bool definitelyUnaccepted = false)
     {
         lock (_preparedRequestGate)
         {
@@ -308,6 +309,13 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
             if (submissionUncertain || prepared.PreviouslyUncertain)
             {
+                _uncertainPreparedIntents.Add(prepared.Id);
+            }
+
+            if (HasUncertainJournalSubmission(prepared, copies.Select(copy => copy.Ticket!).ToArray(), definitelyUnaccepted))
+            {
+                // An unchanged preparation handle cannot retire a later attempt's
+                // possible POST, or uncertainty restored from the journal.
                 _uncertainPreparedIntents.Add(prepared.Id);
             }
 
@@ -361,6 +369,10 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
         return true;
     }
+
+    private bool HasUncertainJournalSubmission(PreparedRequest prepared, DiscoveryFeedbackRecoveryJournal.Ticket[] copies, bool definitelyUnaccepted)
+        => !_preparedAttempts.ContainsKey(prepared.Id) && copies.Any(ticket => ticket.SubmissionUncertain
+            && (!definitelyUnaccepted || prepared.Attempt == Guid.Empty || ticket.LastSubmissionAttempt != prepared.Attempt));
 
     internal IReadOnlySet<(int TmdbId, string MediaType)> GetPreparedRequestItems(Guid user, string? sourceScope)
         => RecoveryJournals().SelectMany(journal => journal.Pending()).Where(ticket => ticket.User == user && ticket.Kind == nameof(ReceiptKind.RequestIntent) && ticket.RequestSourceScope == sourceScope)
@@ -626,7 +638,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         return await RunWriteAsync(() => RecordGeneratedCore(userId, userName, snapshot, acquired), [], observed: false, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<bool> RunWriteAsync(Func<bool> operation, Receipt[] receipts, bool observed, CancellationToken cancellationToken)
+    private async Task<bool> RunWriteAsync(Func<bool> operation, Receipt[] receipts, bool observed, CancellationToken cancellationToken, Func<bool>? canAdmit = null)
     {
         if (cancellationToken.IsCancellationRequested)
         {
@@ -641,6 +653,12 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             {
                 ReleaseUnadmittedRecovery(receipts);
                 throw new ObjectDisposedException(nameof(DiscoveryFeedbackStore));
+            }
+
+            if (canAdmit is not null && !canAdmit())
+            {
+                ReleaseUnadmittedRecovery(receipts);
+                return false;
             }
 
             var activeWriter = _writerRunning && _pendingGeneration is { IsCompleted: false };
@@ -666,8 +684,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
                 _writes.Enqueue(_retryWrites.Dequeue());
             }
 
-            var dependencies = receipts.Where(receipt => receipt.Key.Kind == ReceiptKind.Watched)
-                .Select(receipt => receipt.Key.Title).Where(HasPendingRequest).Distinct().ToArray();
+            var dependencies = PendingRequestDependencies(receipts);
             _writes.Enqueue(new PendingWrite(operation, observed, completion, receipts, dependencies));
             if (observed)
             {
@@ -995,22 +1012,55 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
     private void AddPendingActions(IEnumerable<Receipt> receipts)
     {
         Interlocked.Increment(ref _servingRevision);
-        foreach (var key in receipts.Where(receipt => receipt.Key.Kind is ReceiptKind.Request or ReceiptKind.Dismissal).Select(receipt => receipt.Key))
+        foreach (var receipt in receipts)
         {
-            var pending = key.Kind == ReceiptKind.Request ? _pendingRequests : _pendingDismissals;
-            pending[key.Title] = pending.GetValueOrDefault(key.Title) + 1;
+            var key = receipt.Key;
+            if (key.Kind == ReceiptKind.Watched)
+            {
+                if (!_pendingWatchTimes.TryGetValue(key.Title, out var times))
+                {
+                    times = [];
+                    _pendingWatchTimes[key.Title] = times;
+                }
+
+                times[receipt.Acquired] = times.GetValueOrDefault(receipt.Acquired) + 1;
+            }
+            else if (key.Kind is ReceiptKind.Request or ReceiptKind.Dismissal)
+            {
+                var pending = key.Kind == ReceiptKind.Request ? _pendingRequests : _pendingDismissals;
+                pending[key.Title] = pending.GetValueOrDefault(key.Title) + 1;
+            }
         }
     }
 
     private bool HasPendingRequest(TitleKey title)
         => _pendingRequests.ContainsKey(title) || _rejectedReceipts.ContainsKey(new ReceiptKey(title, ReceiptKind.Request));
 
+    private TitleKey[] PendingRequestDependencies(Receipt[] receipts)
+        => receipts.Where(receipt => receipt.Key.Kind == ReceiptKind.Watched)
+            .Select(receipt => receipt.Key.Title).Where(HasPendingRequest).Distinct().ToArray();
+
     private bool HasUndurableDependency(PendingWrite write)
     {
         var snapshot = Volatile.Read(ref _memoryCache);
-        return write.Dependencies.Any(title => HasPendingRequest(title)
+        return write.Receipts.Any(receipt => receipt.Key.Kind == ReceiptKind.Request && HasEarlierPendingWatch(receipt.Key.Title, receipt.Acquired))
+            || write.Dependencies.Any(title => HasPendingRequest(title)
             && !(snapshot?.FirstOrDefault(user => user.UserId == title.User)?.Entries
                 .Any(entry => entry.TmdbId == title.TmdbId && entry.MediaType == title.MediaType && entry.RequestedAtUtc.HasValue) ?? false));
+    }
+
+    private bool HasEarlierPendingWatch(TitleKey title, DateTime requestAt)
+    {
+        var watchedAt = _pendingWatchTimes.TryGetValue(title, out var times) ? times.Keys.First() : (DateTime?)null;
+        if (_rejectedReceipts.TryGetValue(new ReceiptKey(title, ReceiptKind.Watched), out var rejected)
+            && (!watchedAt.HasValue || rejected < watchedAt.Value))
+        {
+            watchedAt = rejected;
+        }
+
+        var entry = Volatile.Read(ref _memoryCache)?.FirstOrDefault(user => user.UserId == title.User)?.Entries
+            .FirstOrDefault(entry => entry.TmdbId == title.TmdbId && entry.MediaType == title.MediaType);
+        return watchedAt < requestAt && entry?.RequestedAtUtc <= watchedAt && entry?.WasWatched != true;
     }
 
     private bool ProcessWrites()
@@ -1120,7 +1170,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
                 RetireObservedWrite(write);
                 PromoteRetainedPredictions();
-                PromoteDependentWatches(write);
+                PromoteDependentWrites(write);
             }
             else
             {
@@ -1135,6 +1185,14 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
                 else if (_writes.Count + _retryWrites.Count < MaximumPendingWrites)
                 {
                     _retryWrites.Enqueue(write);
+                }
+                else if (_priorityRecoveryOwner is null && IsRequestDependencyBarrier(write))
+                {
+                    // An identity-only request has no journal payload to rebuild.
+                    // Retain its exact operation in the existing dependency slot.
+                    var retained = write with { PriorityRecovery = true };
+                    _priorityRecoveryOwner = retained;
+                    _retainedPriorityRecovery = retained;
                 }
                 else
                 {
@@ -1162,6 +1220,10 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         _retryTimer = RetryTimeProvider.CreateTimer(_ => RetryRetainedWrites(generation), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _retryTimer.Change(delay, Timeout.InfiniteTimeSpan);
     }
+
+    private bool IsRequestDependencyBarrier(PendingWrite write)
+        => write.Receipts.Any(receipt => receipt.Key.Kind == ReceiptKind.Request
+            && _writes.Concat(_retryWrites).Any(waiting => waiting.Dependencies.Contains(receipt.Key.Title)));
 
     private bool HasRunnableRetainedWrites()
         => _retainedPriorityRecovery is not null || _retryWrites.Any(write => !HasUndurableDependency(write))
@@ -1230,7 +1292,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
                 }
             }
 
-            RetirePendingAction(receipt.Key);
+            RetirePendingAction(receipt);
 
             if (recovered && _rejectedReceipts.TryGetValue(receipt.Key, out var rejectedAt) && CoversRejectedReceipt(receipt, rejectedAt))
             {
@@ -1243,8 +1305,27 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         }
     }
 
-    private void RetirePendingAction(ReceiptKey key)
+    private void RetirePendingAction(Receipt receipt)
     {
+        var key = receipt.Key;
+        if (key.Kind == ReceiptKind.Watched && _pendingWatchTimes.TryGetValue(key.Title, out var times))
+        {
+            var remaining = times.GetValueOrDefault(receipt.Acquired) - 1;
+            if (remaining <= 0)
+            {
+                times.Remove(receipt.Acquired);
+            }
+            else
+            {
+                times[receipt.Acquired] = remaining;
+            }
+
+            if (times.Count == 0)
+            {
+                _pendingWatchTimes.Remove(key.Title);
+            }
+        }
+
         if (key.Kind is not (ReceiptKind.Request or ReceiptKind.Dismissal))
         {
             return;
@@ -1328,18 +1409,22 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         return entry?.DismissedAtUtc >= rejectedAt || permanentDismissalAt >= rejectedAt;
     }
 
-    private void PromoteDependentWatches(PendingWrite completed)
+    private void PromoteDependentWrites(PendingWrite completed)
     {
-        if (_disposed || !completed.Receipts.Any(receipt => receipt.Key.Kind == ReceiptKind.Request))
+        if (_disposed || !completed.Receipts.Any(receipt => receipt.Key.Kind is ReceiptKind.Request or ReceiptKind.Watched))
         {
             return;
         }
 
+        var requests = completed.Receipts.Where(receipt => receipt.Key.Kind == ReceiptKind.Request).Select(receipt => receipt.Key.Title).ToHashSet();
+        var watches = completed.Receipts.Where(receipt => receipt.Key.Kind == ReceiptKind.Watched).Select(receipt => receipt.Key.Title).ToHashSet();
         var count = _retryWrites.Count;
         for (var index = 0; index < count; index++)
         {
             var waiting = _retryWrites.Dequeue();
-            if (waiting.Dependencies.Length > 0 && !HasUndurableDependency(waiting))
+            var resolved = waiting.Dependencies.Any(requests.Contains)
+                || waiting.Receipts.Any(receipt => receipt.Key.Kind == ReceiptKind.Request && watches.Contains(receipt.Key.Title));
+            if (resolved && !HasUndurableDependency(waiting))
             {
                 _writes.Enqueue(waiting);
             }
@@ -1643,6 +1728,19 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
     /// <inheritdoc />
     public Task<bool> RecordRequestedAsync(Guid userId, int tmdbId, string mediaType, CancellationToken cancellationToken)
+        => RecordRequestedCoreAsync(userId, tmdbId, mediaType, cancellationToken);
+
+    /// <summary>Checks captured request provenance at the managed writer's actual receipt admission point.</summary>
+    /// <param name="userId">The request owner.</param>
+    /// <param name="tmdbId">The verified title.</param>
+    /// <param name="mediaType">The verified namespace.</param>
+    /// <param name="sourceScope">The Seerr source that supplied the complete request snapshot.</param>
+    /// <param name="cancellationToken">The bounded caller wait.</param>
+    /// <returns>False without admitting a receipt when the source changed.</returns>
+    internal Task<bool> RecordRequestedForSourceAsync(Guid userId, int tmdbId, string mediaType, string? sourceScope, CancellationToken cancellationToken)
+        => RecordRequestedCoreAsync(userId, tmdbId, mediaType, cancellationToken, () => SeerrDiscoveryService.RequestSourceScope(Plugin.Instance?.Configuration) == sourceScope);
+
+    private Task<bool> RecordRequestedCoreAsync(Guid userId, int tmdbId, string mediaType, CancellationToken cancellationToken, Func<bool>? canAdmit = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var acquired = ReceiptTimeProvider.GetUtcNow().UtcDateTime;
@@ -1650,7 +1748,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         var key = new ReceiptKey(new TitleKey(userId, tmdbId, mediaType), ReceiptKind.Request);
         acquired = FirstRequestTime(key, acquired);
         var receipt = new Receipt(key, acquired);
-        return RunWriteAsync(() => RecordActionCore(userId, tmdbId, mediaType, requested: true, item: null, generatedAtUtc: null, acquired), [receipt], observed: true, cancellationToken);
+        return RunWriteAsync(() => RecordActionCore(userId, tmdbId, mediaType, requested: true, item: null, generatedAtUtc: null, acquired), [receipt], observed: true, cancellationToken, canAdmit);
     }
 
     private DateTime FirstRequestTime(ReceiptKey key, DateTime acquired)
@@ -1695,17 +1793,20 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
     private bool ExecuteSynchronousWrite(PendingWrite write)
     {
+        bool blocked;
         lock (_writerGate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            write = write with { Dependencies = PendingRequestDependencies(write.Receipts) };
             Interlocked.Increment(ref _pendingObservedWrites);
             AddPendingActions(write.Receipts);
+            blocked = HasUndurableDependency(write);
         }
 
         var saved = false;
         try
         {
-            saved = write.Operation();
+            saved = !blocked && write.Operation();
             if (saved)
             {
                 CompleteRecoveryTickets(write);
@@ -1783,6 +1884,14 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         lock (_fileLock)
         {
             var data = LoadInternal();
+            lock (_writerGate)
+            {
+                if (requested && HasEarlierPendingWatch(new TitleKey(userId, tmdbId, NormalizeMediaType(mediaType)), timing.PredictionAt))
+                {
+                    return false;
+                }
+            }
+
             var userResult = GetOrCreateUserResult(data, userId, userName: null);
             var normalizedType = NormalizeMediaType(mediaType);
             var entry = GetOrCreateEntry(userResult, tmdbId, normalizedType);
@@ -1899,7 +2008,22 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
     /// <inheritdoc />
     public void MarkWatched(Guid userId, IReadOnlySet<(int TmdbId, string MediaType)> watchedItems)
-        => MarkWatchedCore(userId, watchedItems, DateTime.UtcNow);
+    {
+        ArgumentNullException.ThrowIfNull(watchedItems);
+        if (watchedItems.Count == 0)
+        {
+            return;
+        }
+
+        var snapshot = watchedItems.Select(title => (title.TmdbId, MediaType: NormalizeMediaType(title.MediaType))).ToHashSet();
+        var acquired = ReceiptTimeProvider.GetUtcNow().UtcDateTime;
+        var receipts = snapshot.Select(title => new Receipt(new ReceiptKey(new TitleKey(userId, title.TmdbId, title.MediaType), ReceiptKind.Watched), acquired)).ToArray();
+        var write = new PendingWrite(() => MarkWatchedCore(userId, snapshot, acquired), true, new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously), receipts, []);
+        if (!ExecuteSynchronousWrite(write))
+        {
+            throw new IOException("Could not persist watched feedback; its original operation remains pending.");
+        }
+    }
 
     /// <inheritdoc />
     public Task<bool> MarkWatchedAsync(Guid userId, IReadOnlySet<(int TmdbId, string MediaType)> watchedItems, CancellationToken cancellationToken)
@@ -1917,7 +2041,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         return RunWriteAsync(() => MarkWatchedCore(userId, snapshot, acquired), receipts, observed: true, cancellationToken);
     }
 
-    private bool MarkWatchedCore(Guid userId, IReadOnlySet<(int TmdbId, string MediaType)> watchedItems, DateTime acquired)
+    private bool MarkWatchedCore(Guid userId, HashSet<(int TmdbId, string MediaType)> watchedItems, DateTime acquired)
     {
         ArgumentNullException.ThrowIfNull(watchedItems);
 
