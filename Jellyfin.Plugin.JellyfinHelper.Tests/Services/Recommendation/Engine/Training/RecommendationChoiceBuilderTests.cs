@@ -184,14 +184,20 @@ public sealed class RecommendationChoiceBuilderTests
     }
 
     [Theory]
-    [InlineData(-10, true)]
-    [InlineData(0.5, false)]
-    public void AnOrganicWatchComparesWithThePlaylistOnlyWhenItsMaterialAlreadyExisted(double addedDay, bool comparison)
+    [InlineData(-10, 2, true)]
+    [InlineData(-10, 0, false)]
+    [InlineData(-10, 1, false)]
+    [InlineData(0.5, 2, false)]
+    public void AnOrganicWatchComparesWithThePlaylistOnlyWhenItsMaterialAlreadyExisted(double addedDay, int alternativeVersion, bool comparison)
     {
         var user = Guid.NewGuid();
         var chosen = Title(user, heldout: false);
         var other = Title(user, heldout: false);
-        var result = Result(user, Item(other, .95));
+        // An organic reconstruction uses the current builder. A saved legacy alternative
+        // must keep its original derivation, not be relabeled to manufacture a comparison.
+        var alternative = new CandidateFeatures { FeatureDerivationVersion = alternativeVersion, GenreSimilarity = .95, CombinedCriticScore = .8 };
+        var original = alternative.ToVector();
+        var result = Result(user, Item(other, .95, alternative));
         var profile = Profile(user, Watch(chosen, Prediction.AddDays(addedDay), Prediction.AddDays(1)));
         var examples = TrainingDataBuilder.BuildExamples([result], [profile], TestContext.Current.CancellationToken).Examples;
         var positive = Assert.Single(examples, example => example.IsObserved && example.Choice is null);
@@ -207,6 +213,9 @@ public sealed class RecommendationChoiceBuilderTests
         }
         Assert.Equal(comparison, unpublished.IsContrastSample);
         Assert.True(positive.Label > .5);
+        Assert.Equal(CandidateFeatures.CurrentFeatureDerivationVersion, positive.Features.FeatureDerivationVersion);
+        Assert.Equal(alternativeVersion, alternative.FeatureDerivationVersion);
+        Assert.Equal(original, alternative.ToVector());
         Assert.Single(TrainingMath.FilterEffectiveExamples([positive], DateTime.UtcNow, .01));
         if (!comparison) Assert.Empty(TrainingMath.FilterEffectiveExamples([unpublished], DateTime.UtcNow, .01));
     }

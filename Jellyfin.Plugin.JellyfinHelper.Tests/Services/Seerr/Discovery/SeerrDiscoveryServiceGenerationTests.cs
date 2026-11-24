@@ -48,6 +48,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     private const int TmdbGenreTvKids = 10762;
 
     private readonly ScriptedHttpHandler _handler;
+    private readonly Mock<IHttpClientFactory> _httpFactory;
     private readonly Mock<IWatchHistoryService> _history;
     private readonly Mock<IArrIntegrationService> _arr;
     private readonly Mock<IDiscoveryFeedbackStore> _feedbackStore;
@@ -61,23 +62,27 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     private readonly ServerConfiguration _serverConfiguration = new() { PreferredMetadataLanguage = "" };
     private readonly OffsetClock _metadataClock = new();
 
-    [Fact]
-    public async Task EveryProfileUsesTheSameConnectionEvenWhenTheLiveSourceChangesAndReturnsBeforeCommit()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EveryProfileUsesTheSameConnectionEvenWhenTheLiveSourceChangesAndReturnsBeforeCommit(bool certificates)
     {
         var first = NewProfile();
         var second = NewProfile();
         _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(first, second));
         _history.Setup(history => history.GetAllUserIds()).Returns([first.UserId, second.UserId]);
         var config = Plugin.Instance!.Configuration;
+        config.SeerrSkipCertificateValidation = certificates;
         var url = config.SeerrUrl;
         var key = config.SeerrApiKey;
-        var certificates = config.SeerrSkipCertificateValidation;
         var changed = false;
         var saved = false;
         var discoverReads = 0;
         _handler.ResponseOverride = (request, _) =>
         {
+            Assert.Equal(HttpMethod.Get, request.Method);
             Assert.Equal(new Uri(url).Host, request.RequestUri!.Host);
+            Assert.Equal(key, Assert.Single(request.Headers.GetValues("X-Api-Key")));
             var path = request.RequestUri.AbsolutePath;
             if (path.Contains("/discover/", StringComparison.Ordinal))
             {
@@ -90,7 +95,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
                     config.SeerrSkipCertificateValidation = !certificates;
                 }
 
-                return Task.FromResult(JsonResponse(System.Text.Json.JsonSerializer.Serialize(new { results = Enumerable.Range(601, 30).Select(id => Candidate(id, 8)) }, Jellyfin.Plugin.JellyfinHelper.Services.JsonDefaults.Options)));
+                return Task.FromResult(JsonResponse(BuildDiscoverJson([28], Enumerable.Range(601, 30).Select(id => Candidate(id, 8)).ToArray())));
             }
 
             return Task.FromResult(JsonResponse(int.TryParse(path.Split('/')[^1], out var id)
@@ -111,6 +116,11 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         var results = await _cache.LoadAsync(TestContext.Current.CancellationToken);
         Assert.Equal(new[] { first.UserId, second.UserId }.Order(), results.Select(result => result.UserId).Order());
         Assert.All(results, result => Assert.NotEmpty(result.Recommendations));
+        Assert.All(results.SelectMany(result => result.Recommendations), item => Assert.InRange(item.TmdbId, 601, 630));
+        var clientName = certificates ? "SeerrDiscoveryInsecure" : "SeerrDiscovery";
+        var changedClientName = certificates ? "SeerrDiscovery" : "SeerrDiscoveryInsecure";
+        _httpFactory.Verify(factory => factory.CreateClient(clientName), Times.AtLeast(2));
+        _httpFactory.Verify(factory => factory.CreateClient(changedClientName), Times.Never);
         foreach (var user in new[] { first.UserId, second.UserId })
         {
             _feedbackStore.Verify(store => store.RecordGeneratedAsync(user, It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Once);
@@ -580,8 +590,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             _handler.RegisterResponse(HttpMethod.Get, path, HttpStatusCode.OK, """{"results":[]}""");
         }
 
-        var httpFactory = new Mock<IHttpClientFactory>();
-        httpFactory
+        _httpFactory = new Mock<IHttpClientFactory>();
+        _httpFactory
             .Setup(f => f.CreateClient(It.IsAny<string>()))
             .Returns(() => new HttpClient(_handler, disposeHandler: false));
 
@@ -638,7 +648,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         server.SetupGet(manager => manager.Configuration).Returns(_serverConfiguration);
         _titleMetadata = new TitleMetadataCache(server.Object, clock: _metadataClock);
         _sut = new SeerrDiscoveryService(
-            httpFactory.Object,
+            _httpFactory.Object,
             _history.Object,
             _arr.Object,
             libraryManager.Object,

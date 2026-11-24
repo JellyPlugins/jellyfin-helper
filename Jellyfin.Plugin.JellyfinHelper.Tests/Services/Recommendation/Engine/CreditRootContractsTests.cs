@@ -98,6 +98,32 @@ public sealed class CreditRootContractsTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SameTitleMetadataCannotLaunderCreditsFromADifferentNestedTitle(bool wrongMediaType)
+    {
+        var item = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "77" }, ProductionLocations = null! };
+        var native = CreditMetadataCapture.Native(item, null, Clock);
+        var provider = TitleMetadataSnapshot.FromDetail(new SeerrMediaDetailResponse
+        {
+            Id = 77, Credits = new SeerrCredits { Cast = [new() { Id = 1, Name = "Other title's actor", Order = 0 }], Crew = [] }
+        }, "movie", Clock.AddHours(-1));
+        var invalidCredits = provider.Credits! with { TmdbId = wrongMediaType ? 77 : 78, MediaType = wrongMediaType ? "tv" : "movie" };
+        var metadata = provider with { Credits = invalidCredits, ProductionCountries = ["JP"] };
+        var resolved = CreditMetadataCapture.WithAvailableTitleMetadata(item, native, metadata);
+        Assert.Equal(item.Id, resolved.SourceItemId);
+        Assert.Equal(77, resolved.TmdbId);
+        Assert.Null(resolved.Cast);
+        Assert.Null(resolved.Crew);
+        Assert.Empty(resolved.People());
+        Assert.Equal(new[] { "JP" }, resolved.ProductionCountries!.Value);
+        Assert.Equal(provider.FetchedAtUtc, resolved.CountriesAcquiredAtUtc);
+        Assert.Same(invalidCredits, metadata.Credits);
+        Assert.Null(native.Cast);
+        Assert.Null(native.ProductionCountries);
+    }
+
+    [Theory]
     [InlineData(false, false, .8)]
     [InlineData(true, false, .8)]
     [InlineData(true, true, .5)]

@@ -120,6 +120,23 @@ public sealed class TitleMetadataCacheTests
         Assert.Null((old with { FetchedAtUtc = default, FieldFetchedAtUtc = null }).At(cutoff));
     }
 
+    [Fact]
+    public void HistoricalSourceOnlyGenresReplaceOnlyTheDerivedCurrentProjection()
+    {
+        var cutoff = _clock.Now.AddDays(-2);
+        var old = new TitleMetadataSnapshot { TmdbId = 77, SourceGenres = ["Drama"], Source = "trakt", FetchedAtUtc = cutoff.AddDays(-1) };
+        var later = old with { SourceGenres = ["Documentary"], FetchedAtUtc = cutoff.AddDays(1) };
+        var metadata = TitleMetadataMerger.Combine([old, later])!;
+        var row = new Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory.WatchedItemInfo { LocalGenres = [], Genres = ["Documentary"], TitleMetadata = metadata };
+        var historical = row.AtMetadataCutoff(cutoff);
+        Assert.Equal(new[] { "Drama" }, historical.Genres);
+        Assert.Equal(old.FetchedAtUtc, historical.TitleMetadata!.FetchedAtUtc);
+        Assert.Equal(new[] { "Drama" }, historical.TitleMetadata.SourceGenres!.Value);
+        Assert.Equal(new[] { "Documentary" }, row.Genres);
+        Assert.Same(metadata, row.TitleMetadata);
+        Assert.Equal(cutoff.AddDays(1), later.FetchedAtUtc);
+    }
+
     [Theory]
     [InlineData("valid", true)]
     [InlineData("unscoped", false)]
@@ -408,7 +425,7 @@ public sealed class TitleMetadataCacheTests
     public void TypedIdsDoNotCollideAndReadsDoNotFetchOrRefresh()
     {
         var cache = new TitleMetadataCache(clock: _clock);
-        cache.Store(_config, Snapshot());
+        cache.Store(_config, CompleteScoringSnapshot(_clock.Now));
         Assert.NotNull(cache.Get(_config, 123, "movie"));
         Assert.Null(cache.Get(_config, 123, "tv"));
         Assert.Null(cache.Get(_config, 0, "movie"));
@@ -419,13 +436,15 @@ public sealed class TitleMetadataCacheTests
     [Theory]
     [InlineData(0, false)]
     [InlineData(6, false)]
+    [InlineData(7, true)]
     [InlineData(8, true)]
     [InlineData(29, true)]
+    [InlineData(30, true)]
     [InlineData(31, true)]
     public void StaleMetadataIsRefreshableWithBoundedOutageFallback(int age, bool refresh)
     {
         var cache = new TitleMetadataCache(clock: _clock);
-        cache.Store(_config, Snapshot() with { FetchedAtUtc = _clock.Now.AddDays(-age) });
+        cache.Store(_config, CompleteScoringSnapshot(_clock.Now.AddDays(-age)));
         Assert.Equal(age < 30, cache.Get(_config, 123, "movie") is not null);
         Assert.Equal(refresh, cache.TryBeginRefresh(_config, 123, "movie"));
     }
@@ -934,6 +953,16 @@ public sealed class TitleMetadataCacheTests
     }
 
     private TitleMetadataSnapshot Snapshot() => new() { TmdbId = 123, Keywords = ["anime"], FetchedAtUtc = _clock.Now };
+
+    private static TitleMetadataSnapshot CompleteScoringSnapshot(DateTime acquiredAtUtc)
+        => TitleMetadataSnapshot.FromDetail(new Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery.SeerrMediaDetailResponse
+        {
+            Id = 123,
+            Genres = [new() { Id = 16, Name = "Animation" }],
+            Keywords = [new() { Id = 1, Name = "anime" }],
+            ProductionCompanies = [],
+            Credits = new Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery.SeerrCredits { Cast = [], Crew = [] }
+        }, "movie", acquiredAtUtc);
 
     [Fact]
     public void ReplacingAnEntryRemovesOnlyItsAliasesAndPreservesOtherEntriesClaimingTheSameAlias()

@@ -1598,8 +1598,10 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         }
     }
 
-    [Fact]
-    public async Task ANewIdentityOnlyRequestCannotBorrowAnAlreadyReservedExecutionSlot()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ANewSynchronousFeedbackActionCannotBorrowAnAlreadyReservedExecutionSlot(bool dismissal)
     {
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim();
@@ -1619,7 +1621,8 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         {
             await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
             queued = Task.WhenAll(Enumerable.Range(1001, 64).Select(id => store.RecordRequestedAsync(user, id, "movie", TestContext.Current.CancellationToken)));
-            Assert.Throws<IOException>(() => store.RecordRequested(user, 9000, "movie"));
+            if (dismissal) Assert.Throws<IOException>(() => store.RecordDismissed(user, 9000, "movie"));
+            else Assert.Throws<IOException>(() => store.RecordRequested(user, 9000, "movie"));
             Assert.Equal(65, (int)typeof(DiscoveryFeedbackStore).GetField("_reservedWrites", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!);
             release.Set();
             Assert.True(await first);
@@ -1627,10 +1630,16 @@ public class DiscoveryFeedbackStoreTests : IDisposable
             await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
             Assert.DoesNotContain((9000, "movie"), store.GetRequestedItems(user));
             Assert.Throws<IOException>(() => store.LoadAll());
-            // Only the never-admitted request needs a retry; the original 65
+            // Only the never-admitted action needs a retry; the original 65
             // admitted operations persisted without resubmission.
-            store.RecordRequested(user, 9000, "movie");
-            Assert.Equal(66, Assert.Single(store.LoadAll()).Entries.Count);
+            if (dismissal) store.RecordDismissed(user, 9000, "movie");
+            else store.RecordRequested(user, 9000, "movie");
+            var saved = Assert.Single(store.LoadAll());
+            Assert.Equal(66, saved.Entries.Count);
+            var replay = Assert.Single(saved.Entries, entry => entry.TmdbId == 9000);
+            Assert.Equal(dismissal, replay.DismissedAtUtc.HasValue);
+            Assert.Equal(!dismissal, replay.RequestedAtUtc.HasValue);
+            Assert.Equal(dismissal ? DiscoveryInteractionStatus.Dismissed : DiscoveryInteractionStatus.Requested, replay.GetStatus());
             Assert.Equal(0, (int)typeof(DiscoveryFeedbackStore).GetField("_reservedWrites", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!);
         }
         finally

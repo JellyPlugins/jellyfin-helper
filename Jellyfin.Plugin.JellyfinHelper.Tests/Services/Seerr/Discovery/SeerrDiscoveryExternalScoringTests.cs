@@ -13,6 +13,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
+using Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
@@ -1628,12 +1629,92 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var service = CreateService(titleMetadataCache: cache);
         var config = Plugin.Instance!.Configuration;
         config.SonarrInstances = [new Jellyfin.Plugin.JellyfinHelper.Configuration.ArrInstanceConfig { Url = "https://sonarr.example.test", ApiKey = "test-key" }];
+        config.TraktSourcingEnabled = true;
         Assert.NotNull(cache.StoreSupplemental(config, new TitleMetadataSnapshot { TmdbId = 0, MediaType = "tv", TvdbId = 22, GenreIds = [16], Keywords = ["pirate"], FetchedAtUtc = DateTime.UtcNow.AddMinutes(-1) }, new MetadataSourceScope("sonarr", "https://sonarr.example.test", "test-key"), null));
         Assert.Null(cache.GetForLanguage(config, 77, "tv", 0, null, null));
-        var candidate = new TmdbDiscoverItem { Id = 77, MediaType = "tv", TitleMetadata = new TitleMetadataSnapshot { TmdbId = 77, MediaType = "tv", TvdbId = 22, FetchedAtUtc = DateTime.UtcNow } };
+        var alias = TraktMapper.Metadata(new TraktMediaItem { Ids = new() { Tmdb = 77, Tvdb = 22 } }, "tv", DateTime.UtcNow);
+        var candidate = new TmdbDiscoverItem { Id = 77, MediaType = "tv", TitleMetadata = alias };
         typeof(SeerrDiscoveryService).GetMethod("ApplySharedCandidateMetadata", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [candidate, config, null]);
-        Assert.Contains("pirate", candidate.TitleMetadata!.Keywords!.Value);
+        var metadata = Assert.IsType<TitleMetadataSnapshot>(candidate.TitleMetadata);
+        Assert.Contains("pirate", metadata.Keywords!.Value);
         Assert.Contains(16, candidate.GenreIds);
+        Assert.Equal(77, metadata.TmdbId);
+        Assert.Equal(22, metadata.TvdbId);
+        Assert.Null(alias.Keywords);
+        Assert.Equal(TraktScope, alias.ObservationScope);
+    }
+
+    [Theory]
+    [InlineData("movie")]
+    [InlineData("tv")]
+    public void CachedSharedCreditsProjectTheirActualPeopleAndAcquisitionTimeBeforeScoring(string mediaType)
+    {
+        var cache = new TitleMetadataCache();
+        var service = CreateService(titleMetadataCache: cache);
+        var config = Plugin.Instance!.Configuration;
+        var acquired = DateTime.UtcNow.AddHours(-1);
+        var metadata = TitleMetadataSnapshot.FromDetail(new SeerrMediaDetailResponse
+        {
+            Id = 101,
+            Credits = new SeerrCredits
+            {
+                Cast = [new() { Id = 1, Name = "Cached actor", Order = 0 }],
+                Crew = [new() { Id = 2, Name = "Cached writer", Job = "Writer" }]
+            }
+        }, mediaType, acquired);
+        cache.Store(config, metadata);
+        var candidate = new TmdbDiscoverItem { Id = 101, MediaType = mediaType, KnownPeople = ["stale actor"] };
+        typeof(SeerrDiscoveryService).GetMethod("ApplySharedCandidateMetadata", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [candidate, config, null]);
+        Assert.Equal(new[] { "Cached actor" }, candidate.KnownPeople);
+        Assert.Equal(101, candidate.Credits!.TmdbId);
+        Assert.Equal(mediaType, candidate.Credits.MediaType);
+        Assert.Equal(acquired, candidate.Credits.Cast!.AcquiredAtUtc);
+        Assert.Equal(acquired, candidate.Credits.Crew!.AcquiredAtUtc);
+        Assert.Equal("Cached writer", Assert.Single(candidate.Credits.People(writers: true)).Name);
+        Assert.Equal(metadata.Credits!.Cast, candidate.Credits.Cast);
+        Assert.Null(metadata.ObservationScope);
+    }
+
+    [Theory]
+    [InlineData("current", true)]
+    [InlineData("unscoped", false)]
+    [InlineData("expired", false)]
+    [InlineData("withdrawn", false)]
+    [InlineData("conflicting-id", false)]
+    public void OnlyACurrentConfiguredCompatibleAliasCanAuthorizeSupplementalMetadata(string boundary, bool accepted)
+    {
+        var cache = new TitleMetadataCache();
+        var service = CreateService(titleMetadataCache: cache);
+        var config = Plugin.Instance!.Configuration;
+        config.TraktSourcingEnabled = boundary != "withdrawn";
+        config.SonarrInstances = [new() { Url = "https://sonarr.example.test", ApiKey = "key" }];
+        var acquired = DateTime.UtcNow.AddMinutes(-1);
+        var supplemental = new TitleMetadataSnapshot { TvdbId = 22, MediaType = "tv", GenreIds = [16], Keywords = ["linked keyword"], FetchedAtUtc = acquired };
+        Assert.NotNull(cache.StoreSupplemental(config, supplemental, new("sonarr", "https://sonarr.example.test", "key"), null));
+        Assert.Null(cache.GetForLanguage(config, 77, "tv", 0, null, null));
+        var alias = TraktMapper.Metadata(new TraktMediaItem { Ids = new() { Tmdb = 77, Tvdb = boundary == "conflicting-id" ? 23 : 22 } }, "tv", acquired) with
+        {
+            ObservationScope = boundary == "unscoped" ? null : TraktScope,
+            FetchedAtUtc = boundary == "expired" ? acquired.AddDays(-31) : acquired
+        };
+        var candidate = new TmdbDiscoverItem { Id = 77, MediaType = "tv", TitleMetadata = alias };
+        typeof(SeerrDiscoveryService).GetMethod("ApplySharedCandidateMetadata", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [candidate, config, null]);
+        Assert.Equal(accepted, candidate.GenreIds.Contains(16));
+        if (accepted)
+        {
+            Assert.Equal("linked keyword", Assert.Single(candidate.KnownKeywords!));
+            Assert.Equal(77, candidate.TitleMetadata!.TmdbId);
+            Assert.Equal(22, candidate.TitleMetadata.TvdbId);
+        }
+        else
+        {
+            Assert.Null(candidate.KnownKeywords);
+            Assert.Null(candidate.TitleMetadata?.Keywords);
+        }
+
+        Assert.Null(alias.Keywords);
+        Assert.Equal(acquired, supplemental.FetchedAtUtc);
+        Assert.Equal(new[] { "linked keyword" }, supplemental.Keywords!.Value);
     }
 
     [Theory]
@@ -2578,11 +2659,16 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         SetupProfile(user);
         var config = Plugin.Instance!.Configuration;
         config.SonarrInstances = [new() { Url = "https://sonarr.example.test", ApiKey = "key" }];
+        config.TraktSourcingEnabled = true;
         var metadata = new TitleMetadataCache();
         metadata.StoreSupplemental(config, new TitleMetadataSnapshot { TvdbId = 456, MediaType = "tv", AnimeHint = true, FetchedAtUtc = DateTime.UtcNow }, new("sonarr", "https://sonarr.example.test", "key"), null);
-        var candidate = new ExternalDiscoveryCandidate { TmdbId = 123, MediaType = "tv", Title = "Anchored", VoteAverage = 7.5, SourceGenres = ["Animation"], TitleMetadata = new TitleMetadataSnapshot { TmdbId = 123, TvdbId = 456, MediaType = "tv", FetchedAtUtc = DateTime.UtcNow, Source = "trakt", ObservationScope = TraktScope } };
+        var candidate = Assert.Single(TraktMapper.MapMediaItems([new TraktMediaItem { Ids = new() { Tmdb = 123, Tvdb = 456 }, Title = "Anchored", Rating = 7.5, Genres = ["animation"] }], "tv", out var dropped));
+        Assert.Equal(0, dropped);
+        var original = candidate.TitleMetadata;
         var result = await CreateService(titleMetadataCache: metadata).ScoreExternalCandidatesAsync(user, [candidate], TestContext.Current.CancellationToken);
         Assert.True(Assert.Single(result!.Recommendations).TitleMetadata!.AnimeHint);
+        Assert.Same(original, candidate.TitleMetadata);
+        Assert.Null(original!.AnimeHint);
     }
 
     [Fact]

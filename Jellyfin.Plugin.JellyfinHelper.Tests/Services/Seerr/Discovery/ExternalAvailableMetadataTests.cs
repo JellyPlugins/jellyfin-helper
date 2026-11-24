@@ -159,6 +159,40 @@ public sealed class ExternalAvailableMetadataTests
         Assert.False(malformed.HasCollectionMetadata);
     }
 
+    [Theory]
+    [InlineData("cast-id")]
+    [InlineData("cast-name")]
+    [InlineData("crew-job")]
+    [InlineData("keyword-id")]
+    [InlineData("keyword-name")]
+    public void OnlyValidatedRichMovieDetailsCanConfirmAnOmittedCollection(string invalidField)
+    {
+        var detail = JsonSerializer.Deserialize<SeerrMediaDetailResponse>("""{"id":77,"title":"Movie","releaseDate":"2020-01-01","adult":false,"genres":[{"id":18,"name":"Drama"}],"credits":{"cast":[{"id":1,"name":"Actor","order":0}],"crew":[{"id":2,"name":"Writer","job":"Writer"}]},"keywords":[{"id":3,"name":"friendship"}],"productionCompanies":[],"releases":{}}""")!;
+        Assert.True(detail.HasCollectionMetadata);
+        Assert.Null(detail.Collection);
+        switch (invalidField)
+        {
+            case "cast-id":
+                detail.Credits!.Cast![0].Id = 0;
+                break;
+            case "cast-name":
+                detail.Credits!.Cast![0].Name = string.Empty;
+                break;
+            case "crew-job":
+                detail.Credits!.Crew![0].Job = string.Empty;
+                break;
+            case "keyword-id":
+                detail.Keywords![0].Id = 0;
+                break;
+            case "keyword-name":
+                detail.Keywords![0].Name = string.Empty;
+                break;
+        }
+
+        Assert.False(detail.HasCollectionMetadata);
+        Assert.Null(detail.Collection);
+    }
+
     [Fact]
     public void LegacyProfilesWithNullOwnMetadata_RemainSafeToPrepare()
     {

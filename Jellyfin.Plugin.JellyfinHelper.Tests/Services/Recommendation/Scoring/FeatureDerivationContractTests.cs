@@ -150,6 +150,34 @@ public class FeatureDerivationContractTests
     }
 
     [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    public void AnUnpublishedServingSnapshotPinsItsOffsetConfigurationAndStrategyIdentity(int inputVersion)
+    {
+        var learned = LearnedScoringStrategy.FromAcceptedParameters(new LearnedScoringStrategy.WeightsData
+        {
+            Version = 6, Weights = new double[41], Bias = .9, TrainingGeneration = 1
+        });
+        using var ensemble = new EnsembleScoringStrategy(learned, new HeuristicScoringStrategy(1), genrePenaltyFloor: 1);
+        var features = new CandidateFeatures { FeatureDerivationVersion = inputVersion, GenreSimilarity = .1, CombinedCriticScore = .5 };
+        var original = features.ToVector();
+        var snapshot = ensemble.CaptureServingSnapshot(.2);
+        var score = snapshot.Strategy.Score(features);
+        Assert.Equal(ensemble.ScoreWithOffset(features, .2), score, 12);
+        Assert.Equal(ensemble.Name, snapshot.Strategy.Name);
+        Assert.Equal(ensemble.NameKey, snapshot.Strategy.NameKey);
+        Assert.Null(snapshot.FeatureMeans);
+        if (inputVersion == 2) Assert.Equal(HeuristicScoringStrategy.ScoreRaw(features), score, 12);
+        ensemble.Reconfigure(.1, .1, .1);
+        Assert.NotEqual(score, ensemble.Score(features));
+        ensemble.Dispose();
+        Assert.Equal(score, snapshot.Strategy.ScoreWithExplanation(features).FinalScore, 12);
+        Assert.Equal("strategyEnsemble", snapshot.Strategy.NameKey);
+        Assert.Equal(original, features.ToVector());
+        Assert.Equal(inputVersion, features.FeatureDerivationVersion);
+    }
+
+    [Theory]
     [InlineData(2, 2, true)]
     [InlineData(1, 2, false)]
     [InlineData(1, 1, false)]
