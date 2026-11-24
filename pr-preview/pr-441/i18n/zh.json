@@ -3,6 +3,7 @@
   "recsEnsembleModelGlobal": "全局模型",
   "recsEnsembleModelPrior": "全局先验，个人混合比例",
   "recsEnsembleStatusPrior": "基于全局先验的初始混合比例",
+  "recsEnsembleStatusOlderDerivation": "基于旧特征派生规则的先验模型——当前排序尚未验证",
   "recsEnsembleStatusProvisional": "暂定 — 排序尚未验证",
   "recsEnsembleStatusVerified": "已独立验证",
   "recsEnsembleStatusChoiceRanking": "已独立验证的偏好排序",

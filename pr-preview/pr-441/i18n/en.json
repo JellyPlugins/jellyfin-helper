@@ -3,6 +3,7 @@
   "recsEnsembleModelGlobal": "Global model",
   "recsEnsembleModelPrior": "Global priors, personal mixture",
   "recsEnsembleStatusPrior": "Starting mixture from global priors",
+  "recsEnsembleStatusOlderDerivation": "Older feature-derivation prior — current ranking not verified",
   "recsEnsembleStatusProvisional": "Provisional — ranking not yet verified",
   "recsEnsembleStatusVerified": "Independently verified",
   "recsEnsembleStatusChoiceRanking": "Independently verified choice ranking",
