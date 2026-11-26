@@ -109,6 +109,20 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         Assert.Equal(new[] { 18 }, candidate.GenreIds);
     }
 
+    [Fact]
+    public void CurrentSeerrGenreClearSurvivesWhenTheSharedCacheMisses()
+    {
+        var now = DateTime.UtcNow;
+        var scope = TitleMetadataCache.SeerrScope(Plugin.Instance!.Configuration, "en");
+        var seerr = new TitleMetadataSnapshot { TmdbId = 101, GenreIds = [], Source = "seerr", ObservationScope = scope, FetchedAtUtc = now };
+        var candidate = new TmdbDiscoverItem { Id = 101, GenreIds = [28], TitleMetadata = seerr };
+        candidate.ProjectGenreIds([28]);
+        var method = typeof(SeerrDiscoveryService).GetMethod("ApplyCachedSnapshot", BindingFlags.Static | BindingFlags.NonPublic)!;
+        method.Invoke(null, [candidate, null]);
+        Assert.Empty(candidate.GenreIds);
+        Assert.Empty(candidate.TitleMetadata!.GenreIds!.Value);
+    }
+
     private readonly List<PerUserEnsembleRegistry> _registries = [];
     private readonly List<IDisposable> _owned = [];
     private readonly Mock<IWatchHistoryService> _history = new();

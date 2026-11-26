@@ -317,7 +317,7 @@ public sealed class WatchedItemInfo
             return copy;
         }
 
-        copy.Genres = LocalGenres?.ToArray() ?? [];
+        copy.Genres = LocalGenres?.ToArray() ?? Genres.ToArray();
         copy.TitleMetadata = metadata;
         if (copy.Genres.Count == 0 && metadata?.GenreIds is { } ids)
         {

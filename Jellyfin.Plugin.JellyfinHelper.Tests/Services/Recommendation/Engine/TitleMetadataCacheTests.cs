@@ -137,6 +137,20 @@ public sealed class TitleMetadataCacheTests
         Assert.Equal(cutoff.AddDays(1), later.FetchedAtUtc);
     }
 
+    [Fact]
+    public void HistoricalCutoffWithCreditsPreservesLegacyGenresWithoutProviderEvidence()
+    {
+        var metadata = new TitleMetadataSnapshot
+        {
+            TmdbId = 77, MediaType = "movie", FetchedAtUtc = DateTime.UtcNow,
+            Credits = new CreditMetadataSnapshot { TmdbId = 77, MediaType = "movie", Crew = new CreditField { People = [], Complete = true, AcquiredAtUtc = DateTime.UtcNow } }
+        };
+        var row = new Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory.WatchedItemInfo { TitleMetadata = metadata, Genres = ["Drama"] };
+        var historical = row.AtMetadataCutoff(DateTime.UtcNow);
+        Assert.NotNull(historical.TitleMetadata);
+        Assert.Equal(new[] { "Drama" }, historical.Genres);
+    }
+
     [Theory]
     [InlineData("valid", true)]
     [InlineData("unscoped", false)]
@@ -246,7 +260,11 @@ public sealed class TitleMetadataCacheTests
         Assert.Equal(languageConflict ? null : "en", merged.OriginalLanguage);
         Assert.Equal(languageConflict ? "scripted" : null, merged.SeriesType);
         Assert.Equal(values, merged.ConflictingValues![field]);
-        Assert.False(merged.FieldFetchedAtUtc!.ContainsKey(field));
+        // The conflict now carries its own acquisition time from the earliest conflicting observation.
+        Assert.True(merged.FieldFetchedAtUtc!.ContainsKey(field));
+        Assert.Equal(_clock.Now.AddMinutes(-1), merged.FieldFetchedAtUtc[field]);
+        var consistentField = languageConflict ? nameof(TitleMetadataSnapshot.SeriesType) : nameof(TitleMetadataSnapshot.OriginalLanguage);
+        Assert.Equal(_clock.Now, merged.FieldFetchedAtUtc[consistentField]);
         Assert.Equal(_clock.Now, merged.FetchedAtUtc);
         Assert.Contains(supplemental, merged.SourceObservations!.Value);
 
@@ -1030,6 +1048,21 @@ public sealed class TitleMetadataCacheTests
         Assert.Equal(renewed ? acquired.AddDays(20) : acquired, result.FieldFetchedAtUtc![nameof(TitleMetadataSnapshot.TvdbId)]);
         _clock.Now = acquired.AddDays(31);
         Assert.Equal(renewed ? 456 : 0, cache.Get(_config, 123, "tv", imdbId: "tt123456")!.TvdbId);
+    }
+
+    [Fact]
+    public void CreditAcquisitionTimesBoundTheExclusionValidityStamp()
+    {
+        var cache = new TitleMetadataCache(clock: _clock);
+        cache.Store(_config, new TitleMetadataSnapshot
+        {
+            TmdbId = 77, MediaType = "movie", FetchedAtUtc = _clock.Now,
+            Credits = new CreditMetadataSnapshot { TmdbId = 77, MediaType = "movie", Cast = new CreditField { People = [], Complete = true, AcquiredAtUtc = _clock.Now.AddDays(1) } }
+        });
+        var stamp = cache.CaptureExclusionStamp();
+        Assert.True(cache.IsExclusionStampCurrent(stamp));
+        _clock.Now = _clock.Now.AddYears(2);
+        Assert.False(cache.IsExclusionStampCurrent(stamp));
     }
 
     private sealed class Clock : TimeProvider

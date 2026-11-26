@@ -75,6 +75,20 @@ public sealed class SupplementalMetadataTests
     }
 
     [Fact]
+    public void ConflictingFieldExpiryStaysTiedToTheEarliestConflictingObservation()
+    {
+        var now = DateTime.UtcNow;
+        var metadata = TitleMetadataMerger.Combine([
+            new TitleMetadataSnapshot { TmdbId = 123, OriginalLanguage = "en", FetchedAtUtc = now.AddDays(-29), Source = "seerr", FieldFetchedAtUtc = ImmutableDictionary<string, DateTime>.Empty.Add(nameof(TitleMetadataSnapshot.OriginalLanguage), now.AddDays(-29)) },
+            new TitleMetadataSnapshot { TmdbId = 123, OriginalLanguage = "ja", FetchedAtUtc = now.AddDays(-5), Source = "trakt", FieldFetchedAtUtc = ImmutableDictionary<string, DateTime>.Empty.Add(nameof(TitleMetadataSnapshot.OriginalLanguage), now.AddDays(-5)) }
+        ])!;
+        Assert.Null(metadata.OriginalLanguage);
+        Assert.Equal(2, metadata.ConflictingValues![nameof(TitleMetadataSnapshot.OriginalLanguage)].Length);
+        // The conflict must expire with its own earliest conflicting acquisition, not the newest field time.
+        Assert.Equal(now.AddDays(-29), metadata.FieldFetchedAtUtc![nameof(TitleMetadataSnapshot.OriginalLanguage)]);
+    }
+
+    [Fact]
     public void AConflictingCrossProviderIdentityCannotMixUnrelatedTitles()
     {
         var metadata = TitleMetadataMerger.Combine([

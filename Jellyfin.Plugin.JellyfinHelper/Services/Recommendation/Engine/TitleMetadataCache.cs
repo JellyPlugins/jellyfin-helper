@@ -79,6 +79,15 @@ public sealed class TitleMetadataCache
                 {
                     until = NextValidityBoundary(time, now, until);
                 }
+
+                // Nested credit acquisition times expire with the same bounded window; without
+                // them a freshly captured credit could stay reusable after its own acquisition elapsed.
+                if (snapshot.Credits is { } credits)
+                {
+                    until = NextValidityBoundary(credits.CountriesAcquiredAtUtc ?? DateTime.MinValue, now, until);
+                    until = NextValidityBoundary(credits.Cast?.AcquiredAtUtc ?? DateTime.MinValue, now, until);
+                    until = NextValidityBoundary(credits.Crew?.AcquiredAtUtc ?? DateTime.MinValue, now, until);
+                }
             }
 
             return (_generation, now, until);

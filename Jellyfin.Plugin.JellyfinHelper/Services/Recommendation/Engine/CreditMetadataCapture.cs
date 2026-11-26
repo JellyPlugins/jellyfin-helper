@@ -104,7 +104,17 @@ internal static class CreditMetadataCapture
             };
         }
 
-        return native.WithFallback(provider);
+        // Native observations stay authoritative: only unavailable fields are complemented by the
+        // scoped provider observation, so a known-empty native cast/crew is never overridden.
+        return native with
+        {
+            Cast = native.Cast ?? provider.Cast,
+            Crew = native.Crew ?? provider.Crew,
+            ProductionCountries = native.ProductionCountries ?? provider.ProductionCountries,
+            CountriesAcquiredAtUtc = native.ProductionCountries is { IsDefault: false }
+                ? native.CountriesAcquiredAtUtc
+                : provider.CountriesAcquiredAtUtc
+        };
     }
 
     /// <summary>Detaches field presence and valid provider identities from an actual detail acquisition.</summary>

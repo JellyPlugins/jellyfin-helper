@@ -216,6 +216,24 @@ public class FeatureDerivationContractTests
         Assert.False(ChoiceRankingAdmissionEvaluator.HasSupport([row], now));
     }
 
+    [Fact]
+    public void IncompatibleChoiceWithoutFeaturesCannotBeCopiedOrAdmittedIntoTheCohort()
+    {
+        var row = new TrainingExample
+        {
+            Features = new CandidateFeatures { FeatureDerivationVersion = 2, GenreSimilarity = .4 }, ObservationId = Guid.NewGuid(), HasStableObservationId = true,
+            IsObserved = true, Label = .8, SampleWeight = .7, GeneratedAtUtc = DateTime.UtcNow.AddDays(-2), UserId = Guid.NewGuid(),
+            Choice = new RecommendationChoiceEvidence
+            {
+                ChosenObservationId = Guid.NewGuid(), AvailableAtUtc = DateTime.UtcNow.AddDays(-3), RecommendedAtUtc = DateTime.UtcNow.AddDays(-2), ChosenAtUtc = DateTime.UtcNow.AddDays(-1),
+                ChosenFeatures = null!, Alternatives = [new(Guid.NewGuid(), new CandidateFeatures { FeatureDerivationVersion = 2 })]
+            }
+        };
+        var selected = Assert.Single(FeatureDerivationContract.SelectCohort([row], 2));
+        Assert.Null(selected.Choice);
+        Assert.Equal(2, selected.Features.FeatureDerivationVersion);
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(1)]

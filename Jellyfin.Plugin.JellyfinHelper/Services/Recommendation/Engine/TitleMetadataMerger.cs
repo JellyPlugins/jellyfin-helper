@@ -51,6 +51,8 @@ internal static class TitleMetadataMerger
             if (identities.Length > 1 || identities.Contains(null))
             {
                 conflicts[name] = values;
+                // A conflict expires with the evidence that disagreed, not with the newest field time.
+                times[name] = ConflictingAcquisition(ordered, selector, name, values);
                 return null;
             }
 
@@ -155,6 +157,37 @@ internal static class TitleMetadataMerger
 
         return [];
     }
+
+    /// <summary>Resolves when the conflicting observations were acquired; a conflict expires with its own evidence.</summary>
+    /// <param name="ordered">The connected observations of one merged title.</param>
+    /// <param name="selector">Selects the conflicting field value per observation.</param>
+    /// <param name="field">The field name used for acquisition lookups.</param>
+    /// <param name="conflictingValues">The trimmed values participating in the conflict.</param>
+    /// <returns>The earliest conflicting acquisition; the conservative choice shared with union fields.</returns>
+    private static DateTime ConflictingAcquisition(IReadOnlyList<TitleMetadataSnapshot> ordered, Func<TitleMetadataSnapshot, string?> selector, string field, ImmutableArray<string> conflictingValues)
+    {
+        var conflicting = new HashSet<string>(conflictingValues, StringComparer.OrdinalIgnoreCase);
+        DateTime? earliest = null;
+        foreach (var snapshot in ordered)
+        {
+            var acquiredAt = AcquiredAt(snapshot, field);
+            if (acquiredAt == default || !ContributesToConflict(snapshot, selector, field, conflicting))
+            {
+                continue;
+            }
+
+            if (earliest is null || acquiredAt < earliest.Value)
+            {
+                earliest = acquiredAt;
+            }
+        }
+
+        return earliest ?? DateTime.MaxValue;
+    }
+
+    private static bool ContributesToConflict(TitleMetadataSnapshot snapshot, Func<TitleMetadataSnapshot, string?> selector, string field, HashSet<string> conflicting)
+        => (selector(snapshot) is { } own && conflicting.Contains(own.Trim()))
+            || ConflictValuesFor(snapshot, field).Any(value => value?.Trim() is { } trimmed && conflicting.Contains(trimmed));
 
     private static DateTime AcquiredAt(TitleMetadataSnapshot snapshot, string field)
         => snapshot.FieldFetchedAtUtc?.GetValueOrDefault(field, snapshot.FetchedAtUtc) ?? snapshot.FetchedAtUtc;

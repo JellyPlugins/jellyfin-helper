@@ -82,6 +82,23 @@ public sealed class CreditRootContractsTests
     }
 
     [Fact]
+    public void KnownEmptyNativeCreditsStayAuthoritativeWhenTheProviderComplementArrivesLater()
+    {
+        var item = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "77" }, ProductionLocations = null! };
+        var native = CreditMetadataCapture.Native(item, [], Clock.AddHours(-2));
+        var detail = new SeerrMediaDetailResponse
+        {
+            Id = 77,
+            Credits = new SeerrCredits { Cast = [new SeerrCastMember { Id = 1, Name = "Actor", Order = 0 }], Crew = [] }
+        };
+        var metadata = TitleMetadataSnapshot.FromDetail(detail, "movie", Clock.AddHours(-1));
+        var resolved = CreditMetadataCapture.WithAvailableTitleMetadata(native, metadata);
+        Assert.Empty(resolved.People());
+        Assert.True(resolved.Cast!.Complete);
+        Assert.Equal(Clock.AddHours(-2), resolved.Cast.AcquiredAtUtc);
+    }
+
+    [Fact]
     public void ProviderCountryFallbackKeepsTheFieldTimeAndDoesNotOverrideAnObservedNativeEmpty()
     {
         var item = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "77" }, ProductionLocations = null! };

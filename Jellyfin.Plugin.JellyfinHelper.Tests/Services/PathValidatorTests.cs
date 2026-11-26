@@ -38,8 +38,10 @@ public class PathValidatorTests
         else
         {
             // Backslashes are literal filename characters on Unix, not a Windows device
-            // namespace. Exercise the actual Unix path instead of skipping or emulating it.
-            var literal = Path.Join(Path.GetTempPath(), path);
+            // namespace. Exercise the actual Unix path instead of skipping or emulating it. The
+            // temp prefix is resolved first so a symlinked host temp directory cannot change the
+            // expectation while the literal-backslash handling is still under test.
+            var literal = Path.Join(PathValidator.ResolveDirectoryPath(Path.GetTempPath()), path);
             Assert.Equal(Path.GetFullPath(literal), PathValidator.ResolveDirectoryPath(literal));
         }
     }

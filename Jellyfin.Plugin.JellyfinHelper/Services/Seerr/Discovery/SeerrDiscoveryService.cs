@@ -3158,9 +3158,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         TitleMetadataSnapshot? seerr = null;
-        if (cached is not null)
+        if (candidate.TitleMetadata is { } metadata)
         {
-            seerr = TitleMetadataMerger.Observations(cached).FirstOrDefault(observation => observation.Source == SeerrMetadataSource);
+            seerr = TitleMetadataMerger.Observations(metadata).FirstOrDefault(observation => observation.Source == SeerrMetadataSource);
         }
 
         var projected = seerr is not null && ProjectWinningSeerrGenres(candidate, seerr.ObservationScope);

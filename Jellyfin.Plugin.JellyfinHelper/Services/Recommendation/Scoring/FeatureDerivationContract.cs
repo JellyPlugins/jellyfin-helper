@@ -36,9 +36,9 @@ internal static class FeatureDerivationContract
             return row;
         }
 
-        var copy = row.Copy();
-        copy.Choice = null;
-        return copy;
+        // The incompatible choice is withheld with its uncloneable feature snapshot; the cohort row
+        // itself remains valid and therefore never copies or dereferences the rejected choice.
+        return row.Copy(null);
     }
 
     /// <summary>Prevents mixed or unsupported feature derivations from claiming one admission contract.</summary>
