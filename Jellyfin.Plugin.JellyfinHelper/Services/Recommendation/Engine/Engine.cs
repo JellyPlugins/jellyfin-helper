@@ -1058,13 +1058,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var genreEngagementCtx = ContentScoring.BuildGenreEngagementContext(userProfile);
         var mediaSampleAccess = allCandidates.Any(candidate => candidate is Series) ? CaptureMediaSampleAccess(userProfile) : null;
 
-        // Score each unwatched candidate
-        var scored = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
-        var rankingTrace = new Dictionary<Guid, CandidateRankingEntry>();
-        var contentEligible = new HashSet<Guid>();
-        var contentSupported = new HashSet<Guid>();
-        var tasteLanes = new Dictionary<Guid, Guid>();
-        var retainedInterests = new HashSet<Guid>();
+        // Score each unwatched candidate through the shared per-pass ranking state.
+        var ranking = new CandidateRankingState();
         var servingStrategy = strategy is EnsembleScoringStrategy ensembleStrategy ? ensembleStrategy.CaptureServingSnapshot(alphaOffset).Strategy : strategy;
         var scoringContext = new UserScoringContext
         {
@@ -1118,18 +1113,17 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         ScoreCandidatesAgainstContext(
             allCandidates,
             userProfile,
-            userProfile.MaxParentalRating,
-            watchedIds,
-            watchedSeriesIds,
-            watchedTmdbKeys,
             scoringContext,
-            scored,
-            contentEligible,
-            contentSupported,
-            tasteLanes,
-            retainedInterests,
-            rankingTrace,
+            new WatchedCandidateKeys(watchedIds, watchedSeriesIds, watchedTmdbKeys),
+            ranking,
             ct);
+
+        var scored = ranking.Scored;
+        var rankingTrace = ranking.RankingTrace;
+        var contentEligible = ranking.ContentEligible;
+        var contentSupported = ranking.ContentSupported;
+        var tasteLanes = ranking.TasteLanes;
+        var retainedInterests = ranking.RetainedInterests;
 
         scored = DiversityReranker.DeduplicateSeries(scored);
 
@@ -1175,32 +1169,16 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// </summary>
     /// <param name="candidates">The candidate population to score.</param>
     /// <param name="userProfile">The target user's watch profile.</param>
-    /// <param name="userMaxRating">The user's maximum allowed parental rating.</param>
-    /// <param name="watchedIds">Item ids the user has meaningfully interacted with.</param>
-    /// <param name="watchedSeriesIds">Series ids the user has interacted with or favorited.</param>
-    /// <param name="watchedTmdbKeys">TMDb keys of watched titles, used to catch duplicate library entries.</param>
     /// <param name="scoringContext">The pinned prediction context shared by the whole ranking pass.</param>
-    /// <param name="scored">The accumulating scored-candidate list.</param>
-    /// <param name="contentEligible">Output set of candidates with coherent content eligibility.</param>
-    /// <param name="contentSupported">Output set of eligible candidates with coherent content support.</param>
-    /// <param name="tasteLanes">Output taste-lane mapping for supported candidates.</param>
-    /// <param name="retainedInterests">Output set of candidates retained as interests.</param>
-    /// <param name="rankingTrace">The accumulating ranking trace dictionary.</param>
+    /// <param name="watched">The target user's watched identifiers applied by the skip rules.</param>
+    /// <param name="ranking">The per-pass ranking accumulators written while scoring.</param>
     /// <param name="ct">Cancellation token for cooperative cancellation.</param>
     private void ScoreCandidatesAgainstContext(
         IEnumerable<BaseItem> candidates,
         UserWatchProfile userProfile,
-        int? userMaxRating,
-        HashSet<Guid> watchedIds,
-        HashSet<Guid> watchedSeriesIds,
-        HashSet<(int TmdbId, string MediaType)> watchedTmdbKeys,
         UserScoringContext scoringContext,
-        List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)> scored,
-        HashSet<Guid> contentEligible,
-        HashSet<Guid> contentSupported,
-        Dictionary<Guid, Guid> tasteLanes,
-        HashSet<Guid> retainedInterests,
-        Dictionary<Guid, CandidateRankingEntry> rankingTrace,
+        WatchedCandidateKeys watched,
+        CandidateRankingState ranking,
         CancellationToken ct)
     {
         var candidateIndex = 0;
@@ -1212,17 +1190,17 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 ct.ThrowIfCancellationRequested();
             }
 
-            if (userProfile.AccessibleItemIds?.Contains(candidate.Id) == false || ShouldSkipCandidate(candidate, userMaxRating, watchedIds, watchedSeriesIds, watchedTmdbKeys))
+            if (userProfile.AccessibleItemIds?.Contains(candidate.Id) == false || ShouldSkipCandidate(candidate, userProfile.MaxParentalRating, watched.WatchedIds, watched.WatchedSeriesIds, watched.WatchedTmdbKeys))
             {
                 continue;
             }
 
             var snapshot = BuildCandidateFeatures(candidate, scoringContext, ct);
             var ranked = RankCandidate(candidate, snapshot, scoringContext);
-            scored.Add(ranked);
-            CaptureContentSelectionEvidence(candidate.Id, snapshot.Features, contentEligible, contentSupported, tasteLanes);
-            CaptureRetainedInterest(candidate.Id, snapshot.Features, retainedInterests);
-            CaptureRankingTrace(rankingTrace, candidate, snapshot.Features, ranked.Score, scoringContext.Strategy);
+            ranking.Scored.Add(ranked);
+            CaptureContentSelectionEvidence(candidate.Id, snapshot.Features, ranking.ContentEligible, ranking.ContentSupported, ranking.TasteLanes);
+            CaptureRetainedInterest(candidate.Id, snapshot.Features, ranking.RetainedInterests);
+            CaptureRankingTrace(ranking.RankingTrace, candidate, snapshot.Features, ranked.Score, scoringContext.Strategy);
         }
     }
 
@@ -3190,6 +3168,34 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         _trainingService.Dispose();
     }
+
+    /// <summary>Per-pass ranking accumulators populated while scoring candidates against a pinned user context.</summary>
+    private sealed class CandidateRankingState
+    {
+        /// <summary>Gets or sets the accumulating scored-candidate list.</summary>
+        public List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)> Scored { get; set; } = new();
+
+        /// <summary>Gets or sets the set of candidates with coherent content eligibility.</summary>
+        public HashSet<Guid> ContentEligible { get; set; } = new();
+
+        /// <summary>Gets or sets the set of eligible candidates with coherent content support.</summary>
+        public HashSet<Guid> ContentSupported { get; set; } = new();
+
+        /// <summary>Gets or sets the taste-lane mapping for supported candidates.</summary>
+        public Dictionary<Guid, Guid> TasteLanes { get; set; } = new();
+
+        /// <summary>Gets or sets the set of candidates retained as interests.</summary>
+        public HashSet<Guid> RetainedInterests { get; set; } = new();
+
+        /// <summary>Gets or sets the accumulating ranking-trace entries.</summary>
+        public Dictionary<Guid, CandidateRankingEntry> RankingTrace { get; set; } = new();
+    }
+
+    /// <summary>Watched identifiers applied by the candidate skip rules during one scoring pass.</summary>
+    private sealed record WatchedCandidateKeys(
+        HashSet<Guid> WatchedIds,
+        HashSet<Guid> WatchedSeriesIds,
+        HashSet<(int TmdbId, string MediaType)> WatchedTmdbKeys);
 
     /// <summary>
     ///     Init-only prediction context shared by initial ranking and selected-snapshot scoring. Prepared
