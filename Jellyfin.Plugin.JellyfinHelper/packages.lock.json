@@ -39,9 +39,9 @@
       },
       "StyleCop.Analyzers": {
         "type": "Direct",
-        "requested": "[1.4.26-beta, 1.4.26-beta]",
-        "resolved": "1.4.26-beta",
-        "contentHash": "gB8pMvFu42AblVmzB/H88AV7wlQLnSlQbWNF3vx2d7i+nQa3oXQX6M+Q4bEq/3C1ITmrLbsrEfYa/m5jrTOftw=="
+        "requested": "[1.4.47-beta, 1.4.47-beta]",
+        "resolved": "1.4.47-beta",
+        "contentHash": "VgQxbOrb93VGDkxE/womwTPML6CpbA873APe0+nHW3K6nIip8iE8wtXDuvyQ3De08xOq6EgVhmgJehPFf+ctyg=="
       },
       "System.IO.Abstractions": {
         "type": "Direct",
