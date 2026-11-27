@@ -368,6 +368,58 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task TraktFeedbackCheckRunsAfterTheOwnPoolCacheWaitBeforeRegisteringTheVisibleDelivery(bool trending)
+    {
+        var user = Guid.NewGuid();
+        _config.RecommendationsTaskMode = TaskMode.Activate;
+        var pool = ResultWith(user, 20);
+        var dismissed = false;
+        _discoveryMock.Setup(service => service.FilterConsumedItems(user, It.IsAny<DiscoveryResult>())).Returns((Guid _, DiscoveryResult result) => new DiscoveryResult
+        {
+            UserId = user, GeneratedAt = result.GeneratedAt,
+            Recommendations = result.Recommendations.Where(item => !dismissed || item.TmdbId != 1000).ToList()
+        });
+        _traktDiscovery.Setup(service => service.IsLinkedForAsync(user, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _traktDiscovery.Setup(service => service.GetPersonalAsync(user, It.IsAny<CancellationToken>())).ReturnsAsync(pool);
+        _traktDiscovery.Setup(service => service.GetTrendingAsync(user, It.IsAny<CancellationToken>())).ReturnsAsync(pool);
+        var controller = CreateController(user);
+        async Task<DiscoveryResult> Read()
+        {
+            if (trending)
+            {
+                var response = await controller.GetMyTraktTrending(TestContext.Current.CancellationToken);
+                return Assert.IsType<DiscoveryResult>(Assert.IsType<OkObjectResult>(response.Result).Value);
+            }
+
+            var personal = await controller.GetMyTrakt(TestContext.Current.CancellationToken);
+            return Assert.IsType<TraktDiscoveryResponse>(Assert.IsType<OkObjectResult>(personal.Result).Value).Result!;
+        }
+
+        var gate = (SemaphoreSlim)typeof(DiscoveryCacheService).GetField("_fileLock", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(_cache)!;
+        await gate.WaitAsync(TestContext.Current.CancellationToken);
+        var read = Read();
+        try
+        {
+            Assert.False(read.IsCompleted);
+            _discoveryMock.Verify(service => service.FilterConsumedItems(user, It.IsAny<DiscoveryResult>()), Times.Never);
+            dismissed = true;
+        }
+        finally
+        {
+            gate.Release();
+            await read.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+
+        var delivered = await read;
+        Assert.Equal(Enumerable.Range(1001, 10), delivered.Recommendations.Select(item => item.TmdbId));
+        Assert.Equal(20, pool.Recommendations.Count);
+        Assert.IsType<NoContentResult>(controller.RecordImpressions(new DiscoveryImpressionsDto { DeliveryId = delivered.DeliveryId, Items = [new() { TmdbId = 1001, MediaType = "movie" }] }));
+        Assert.IsType<BadRequestObjectResult>(controller.RecordImpressions(new DiscoveryImpressionsDto { DeliveryId = delivered.DeliveryId, Items = [new() { TmdbId = 1000, MediaType = "movie" }] }));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task OwnTraktExclusionsAreTypedAndOnlySurvivingItemsBelongToTheNewDelivery(bool trending)
     {
         var user = Guid.NewGuid();

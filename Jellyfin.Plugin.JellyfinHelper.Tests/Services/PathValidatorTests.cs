@@ -29,11 +29,21 @@ public class PathValidatorTests
     [Theory]
     [InlineData(@"\\?\C:\Windows")]
     [InlineData(@"\\.\C:\Windows")]
-    public void ResolveDirectoryPath_WindowsDeviceNamespace_IsRejected(string path)
+    public void ResolveDirectoryPath_DeviceNamespaceSyntax_UsesHostPathSemantics(string path)
     {
-        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows device namespace semantics.");
-
-        Assert.Throws<System.Security.SecurityException>(() => PathValidator.ResolveDirectoryPath(path));
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Throws<System.Security.SecurityException>(() => PathValidator.ResolveDirectoryPath(path));
+        }
+        else
+        {
+            // Backslashes are literal filename characters on Unix, not a Windows device
+            // namespace. Exercise the actual Unix path instead of skipping or emulating it. The
+            // temp prefix is resolved first so a symlinked host temp directory cannot change the
+            // expectation while the literal-backslash handling is still under test.
+            var literal = Path.Join(PathValidator.ResolveDirectoryPath(Path.GetTempPath()), path);
+            Assert.Equal(Path.GetFullPath(literal), PathValidator.ResolveDirectoryPath(literal));
+        }
     }
 
     [Theory]
@@ -316,17 +326,16 @@ public class PathValidatorTests
         Assert.Equal("export", PathValidator.SanitizeFileName(name));
     }
 
-    // A path that clears the null-byte and ".."-segment guards but is still malformed enough that Path.GetFullPath throws, like a mid-string colon on Windows, must be refused via the exception filter instead of surfacing as an exception to the caller.
+    // Use an actually invalid base: a drive-relative colon string can normalize successfully,
+    // and its containment depends on the test runner's current directory. The candidate must
+    // clear the early guards so the GetFullPath exception filter is genuinely exercised.
     [Fact]
-    public void IsSafePath_MalformedPath_ReturnsFalse()
+    public void IsSafePath_MalformedBaseDirectory_ReturnsFalseWithoutThrowing()
     {
-        var baseDir = Path.GetTempPath();
-        var malformed = "C:mid:colon:seg";
-
-        var result = Record.Exception(() =>
-            Assert.False(PathValidator.IsSafePath(malformed, baseDir)));
-
-        Assert.Null(result);
+        var candidate = Path.Join(Path.GetTempPath(), "valid-child");
+        var malformedBase = Path.GetTempPath() + '\0';
+        Assert.Throws<ArgumentException>(() => Path.GetFullPath(malformedBase));
+        Assert.False(PathValidator.IsSafePath(candidate, malformedBase));
     }
 
     // Backslash traversal. On Windows '\' is a real separator, so "\..\" walks up and out and the path is rejected.

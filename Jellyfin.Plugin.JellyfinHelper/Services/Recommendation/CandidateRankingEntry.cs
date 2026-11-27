@@ -32,9 +32,12 @@ public sealed record CandidateRankingEntry
     /// <summary>Gets the captured soft personal audience mismatch; null is neutral or unavailable.</summary>
     public double? AudienceMismatch { get; init; }
 
+    /// <summary>Gets the captured mismatch with positively evidenced content families, independent of age permission.</summary>
+    public double? ContentFamilyMismatch { get; init; }
+
     /// <summary>Gets captured support for the next unfinished, playable collection member; null means neutral or unavailable.</summary>
     public double? CollectionContinuationSupport { get; init; }
 
-    /// <summary>Gets the actual selection status: Selected, NotSelectedInMmrPool, NotSelectedInExplorationPool, or BelowSelectionPools.</summary>
+    /// <summary>Gets the actual selection status, including a captured content-family mismatch before diversity or exploration.</summary>
     public string SelectionStage { get; init; } = string.Empty;
 }

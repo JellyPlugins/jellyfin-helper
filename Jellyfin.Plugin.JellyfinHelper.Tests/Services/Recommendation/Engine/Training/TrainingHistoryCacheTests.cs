@@ -272,7 +272,8 @@ public sealed class TrainingHistoryCacheTests
         var built = TrainingDataBuilder.BuildExamples(previous, profiles, CancellationToken.None);
         var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
-        Assert.Equal(2750, built.Examples.Count);
+        Assert.Equal(2500, built.Examples.Count);
+        Assert.DoesNotContain(built.Examples, example => example.IsContrastSample);
         Assert.True(allocated < 100_000_000, $"Historical build allocated {allocated:N0} bytes, exceeding its 100 MB regression budget.");
     }
 

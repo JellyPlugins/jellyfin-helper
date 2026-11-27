@@ -21,6 +21,64 @@ public sealed class ContentScoringGlobalStateCollection
 public sealed class ContentScoringTests(ITestOutputHelper output)
 {
     [Theory]
+    [InlineData(.0001, .0001)]
+    [InlineData(.02, .025)]
+    [InlineData(.25, .5)]
+    [InlineData(.9, .99)]
+    public void WeakPeerOverlapRetainsItsAbsoluteStrengthInsteadOfBeingPromotedByAWeakMaximum(double evidence, double maximum)
+    {
+        var candidate = Guid.NewGuid();
+        var map = new Dictionary<Guid, double> { [candidate] = evidence, [Guid.NewGuid()] = maximum };
+        var before = map.ToArray();
+
+        var score = ContentScoring.ComputeCollaborativeScore(candidate, map, maximum);
+
+        Assert.Equal(evidence, score, 12);
+        Assert.InRange(score, 0, 1);
+        Assert.Equal(before, map.ToArray());
+    }
+
+    [Theory]
+    [InlineData(.5, 1, .5)]
+    [InlineData(2, 4, .5)]
+    [InlineData(4, 4, 1)]
+    [InlineData(5, 4, 1)]
+    [InlineData(-1, 4, 0)]
+    public void StrongPeerMapsKeepBoundedRelativeNormalization(double evidence, double maximum, double expected)
+    {
+        var candidate = Guid.NewGuid();
+        var score = ContentScoring.ComputeCollaborativeScore(candidate, new Dictionary<Guid, double> { [candidate] = evidence }, maximum);
+        Assert.Equal(expected, score, 12);
+    }
+
+    [Theory]
+    [InlineData(double.NaN, 1)]
+    [InlineData(double.PositiveInfinity, 1)]
+    [InlineData(double.NegativeInfinity, 1)]
+    [InlineData(.5, double.NaN)]
+    [InlineData(.5, double.PositiveInfinity)]
+    [InlineData(.5, double.NegativeInfinity)]
+    public void NonFinitePeerEvidenceCannotReachARecommendationFeature(double evidence, double maximum)
+    {
+        var candidate = Guid.NewGuid();
+        var score = ContentScoring.ComputeCollaborativeScore(candidate, new Dictionary<Guid, double> { [candidate] = evidence }, maximum);
+        Assert.Equal(0, score);
+    }
+
+    [Fact]
+    public void IncreasingAbsoluteOverlapBelowOneRaisesConfidenceEvenWhenRelativeOrderingIsUnchanged()
+    {
+        var candidate = Guid.NewGuid();
+        var weak = new Dictionary<Guid, double> { [candidate] = .02, [Guid.NewGuid()] = .025 };
+        var stronger = weak.ToDictionary(pair => pair.Key, pair => pair.Value * 20);
+        var weakScore = ContentScoring.ComputeCollaborativeScore(candidate, weak, weak.Values.Max());
+        var strongerScore = ContentScoring.ComputeCollaborativeScore(candidate, stronger, stronger.Values.Max());
+
+        Assert.True(strongerScore > weakScore);
+        Assert.Equal(weakScore * 20, strongerScore, 12);
+    }
+
+    [Theory]
     [InlineData(16, 128)]
     [InlineData(256, 512)]
     [InlineData(1024, 512)]

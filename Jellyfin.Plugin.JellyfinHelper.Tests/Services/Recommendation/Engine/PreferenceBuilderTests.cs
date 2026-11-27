@@ -55,27 +55,27 @@ public class PreferenceBuilderTests
         Assert.True(vector.ContainsKey("Horror"));
     }
 
-    [Fact]
-    public void BuildGenrePreferenceVector_HeavyRewatcher_Log1pGrowthIsSubLinear()
+    [Theory]
+    [InlineData(4)]
+    [InlineData(30)]
+    [InlineData(int.MaxValue)]
+    public void BuildGenrePreferenceVector_MoreStartsOrResumesDoNotPretendToBeCompletedRewatches(int starts)
     {
         var now = DateTime.UtcNow;
-        var moderateProfile = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, PlayCount = 5, LastPlayedDate = now, Genres = ["Action"] }] };
-        var extremeProfile = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, PlayCount = 30, LastPlayedDate = now, Genres = ["Action"] }] };
+        var moderateProfile = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, PlayCount = 1, LastPlayedDate = now, Genres = ["Action"] }] };
+        var extremeProfile = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, PlayCount = starts, LastPlayedDate = now, Genres = ["Action"] }] };
         moderateProfile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, PlayCount = 0, LastPlayedDate = now, Genres = ["Anchor"] });
         extremeProfile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, PlayCount = 0, LastPlayedDate = now, Genres = ["Anchor"] });
         var mv = PreferenceBuilder.BuildGenrePreferenceVector(moderateProfile);
         var ev = PreferenceBuilder.BuildGenrePreferenceVector(extremeProfile);
         var mRatio = mv["Action"] / mv["Anchor"];
         var eRatio = ev["Action"] / ev["Anchor"];
-        // The extreme watcher gets a higher ratio, but log1p growth is sub-linear so the gain from 5->30 plays is less than 6× (log1p(30)/log1p(5) ≈ 1.83).
-        Assert.True(eRatio > mRatio);
-        var log1pRatioBound = Math.Log(1 + 30) / Math.Log(1 + 5) + 0.5; // generous ceiling well above sub-linear growth
-        Assert.True(eRatio / mRatio < log1pRatioBound,
-            $"Growth from PlayCount 5→30 must be sub-linear under log1p (ratio {eRatio / mRatio:F4} should be < {log1pRatioBound:F4})");
+        Assert.Equal(mRatio, eRatio, 12);
+        Assert.Equal(1, mRatio, 12);
     }
 
     [Fact]
-    public void BuildGenrePreferenceVector_PlayCountBeyond100_IsCapped()
+    public void BuildGenrePreferenceVector_PathologicalStartCountsRemainFiniteAndDoNotAmplifyTaste()
     {
         var now = DateTime.UtcNow;
         var capped = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, PlayCount = 100, LastPlayedDate = now, Genres = ["Action"] }, new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, PlayCount = 0, LastPlayedDate = now, Genres = ["Anchor"] }] };
@@ -84,6 +84,92 @@ public class PreferenceBuilderTests
         var pv = PreferenceBuilder.BuildGenrePreferenceVector(patho);
         Assert.Equal(cv["Action"], pv["Action"], 10);
         Assert.Equal(cv["Anchor"], pv["Anchor"], 10);
+    }
+
+    [Fact]
+    public void SeriesProgressionStillDistinguishesThirtyFromEightyPercentAndDoesNotCountStartsAsCompletions()
+    {
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        var profile = new UserWatchProfile();
+        foreach (var (series, completed, genre) in new[] { (first, 30, "Action"), (second, 80, "Drama") })
+        {
+            for (var episode = 0; episode < 100; episode++)
+            {
+                profile.WatchedItems.Add(new WatchedItemInfo
+                {
+                    ItemId = Guid.NewGuid(), SeriesId = series, ItemType = "Episode", Genres = [genre],
+                    Played = episode < completed, PlayCount = 4, LastPlayedDate = now
+                });
+            }
+        }
+
+        var vector = PreferenceBuilder.BuildGenrePreferenceVector(profile, new Dictionary<Guid, int> { [first] = 100, [second] = 100 });
+        Assert.Equal(.66 / 1.26, vector["Action"], 10);
+        Assert.Equal(1, vector["Drama"], 10);
+    }
+
+    [Theory]
+    [InlineData(false, false, .3)]
+    [InlineData(true, false, .42)]
+    [InlineData(false, true, 1.0)]
+    [InlineData(true, true, 1.0)]
+    public void KnownZeroProgressUsesTheFloorAndTheFirstCompletionIncreasesGenreAndPeopleWeight(bool played, bool favorite, double multiplier)
+    {
+        var series = Guid.NewGuid();
+        var episode = new WatchedItemInfo { ItemId = Guid.NewGuid(), SeriesId = series, ItemType = "Episode", PlayCount = 1, Played = played, IsFavorite = favorite, Genres = ["Action"] };
+        var anchor = new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Anchor"] };
+        var profile = new UserWatchProfile { WatchedItems = [episode, anchor] };
+        var totals = new Dictionary<Guid, int> { [series] = 10 };
+        var lookup = new Dictionary<Guid, HashSet<string>> { [episode.ItemId] = ["Actor"], [anchor.ItemId] = ["Anchor"] };
+        var neutral = PreferenceBuilder.BuildGenrePreferenceVector(profile);
+        var weighted = PreferenceBuilder.BuildGenrePreferenceVector(profile, totals);
+        var neutralPeople = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, lookup);
+        var weightedPeople = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, lookup, totals);
+        Assert.Equal(multiplier, weightedPeople["Actor"] / neutralPeople["Actor"], 10);
+        Assert.Equal(favorite ? 1 : multiplier, weighted["Action"] / weighted["Anchor"] / (neutral["Action"] / neutral["Anchor"]), 10);
+    }
+
+    [Theory]
+    [InlineData(0, 1.0)]
+    [InlineData(1, 1.0)]
+    [InlineData(8, 1.26)]
+    [InlineData(10, 1.5)]
+    public void FavoriteCompletionPreservesItsFloorAndStillAllowsRealSeriesProgressBoosts(int completed, double multiplier)
+    {
+        var series = Guid.NewGuid();
+        var episode = new WatchedItemInfo { ItemId = Guid.NewGuid(), SeriesId = series, ItemType = "Episode", PlayCount = 4, Played = completed > 0, IsFavorite = true, Genres = ["Action"] };
+        var anchor = new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Anchor"] };
+        var profile = new UserWatchProfile { WatchedItems = [episode, anchor] };
+        for (var id = 1; id < completed; id++) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), SeriesId = series, Played = true });
+        var totals = new Dictionary<Guid, int> { [series] = 10 };
+        var people = new Dictionary<Guid, HashSet<string>> { [episode.ItemId] = ["Favorite actor"], [anchor.ItemId] = ["Anchor actor"] };
+        var genres = PreferenceBuilder.BuildGenrePreferenceVector(profile, totals);
+        var neutral = PreferenceBuilder.BuildGenrePreferenceVector(profile);
+        var weights = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, people, totals);
+        Assert.Equal(multiplier, weights["Favorite actor"], 10);
+        Assert.Equal((multiplier + 3) / 4, (genres["Action"] / genres["Anchor"]) / (neutral["Action"] / neutral["Anchor"]), 10);
+    }
+
+    [Fact]
+    public void StartCountsDoNotAmplifyFranchiseCountryOrWriterTasteEither()
+    {
+        var now = DateTime.UtcNow;
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, PlayCount = 1, LastPlayedDate = now, TmdbCollectionName = "First", ProductionCountries = ["JP"], WriterNames = ["First writer"] },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, PlayCount = 4, LastPlayedDate = now, TmdbCollectionName = "Second", ProductionCountries = ["US"], WriterNames = ["Second writer"] }
+            ]
+        };
+        var franchises = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
+        var countries = PreferenceBuilder.BuildProductionCountryPreferenceVector(profile);
+        var writers = PreferenceBuilder.BuildWriterPreferenceWeights(profile);
+        Assert.Equal(franchises["First"], franchises["Second"], 8);
+        Assert.Equal(countries["JP"], countries["US"], 8);
+        Assert.Equal(writers["First writer"], writers["Second writer"], 8);
     }
 
     [Fact]
@@ -1156,6 +1242,61 @@ public class PreferenceBuilderTests
     }
 
     [Fact]
+    public void CanonicalCountryPreferencesDoNotGainWeightFromDuplicateFactsOrPhysicalCopies()
+    {
+        var first = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new() { ItemId = first, ItemType = "Movie", TmdbId = 701, Played = true, LastPlayedDate = now, ProductionCountries = ["US", "US"] },
+                new() { ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = 701, Played = true, LastPlayedDate = now, ProductionCountries = ["US"] },
+                new() { ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = 702, Played = true, LastPlayedDate = now, ProductionCountries = ["GB"] }
+            ]
+        };
+        var raw = profile.WatchedItems[0].ProductionCountries.ToArray();
+        var vector = PreferenceBuilder.BuildProductionCountryPreferenceVector(profile);
+        Assert.Equal(1, vector["US"], 7);
+        Assert.Equal(1, vector["GB"], 7);
+        Assert.Equal(2, vector.Count);
+        Assert.Equal(raw, profile.WatchedItems[0].ProductionCountries);
+        Assert.Equal(now, profile.WatchedItems[0].LastPlayedDate);
+    }
+
+    [Fact]
+    public void CanonicalCountrySeriesCopiesEpisodesAndParentFactsCountOneTitleWithTypedNativeFallback()
+    {
+        var series = Guid.NewGuid();
+        var secondSeries = Guid.NewGuid();
+        var denied = Guid.NewGuid();
+        var episode = Guid.NewGuid();
+        var profile = new UserWatchProfile
+        {
+            AccessibleItemIds = new HashSet<Guid> { series, secondSeries, episode },
+            WatchedItems =
+            [
+                new() { ItemId = denied, ItemType = "Movie", TmdbId = 701, IsFavorite = true, ProductionCountries = ["US"] },
+                new() { ItemId = episode, ItemType = "Episode", SeriesId = series, SeriesTmdbId = 701, IsFavorite = true, ProductionCountries = ["US", "USA"] },
+                new() { ItemId = series, ItemType = "Series", TmdbId = 701, IsFavorite = true, ProductionCountries = ["United States of America"] },
+                new() { ItemId = secondSeries, ItemType = "Series", TmdbId = 701, IsFavorite = true, ProductionCountries = ["US"] }
+            ]
+        };
+        var vector = PreferenceBuilder.BuildProductionCountryPreferenceVector(profile);
+        Assert.Equal(1, Assert.Single(vector).Value);
+        Assert.Equal("US", Assert.Single(vector).Key);
+        var nativeMovie = new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", IsFavorite = true, ProductionCountries = ["GB"] };
+        profile.AccessibleItemIds = new HashSet<Guid> { series, secondSeries, episode, nativeMovie.ItemId };
+        profile.WatchedItems.Add(nativeMovie);
+        Assert.Equal(1, PreferenceBuilder.BuildProductionCountryPreferenceVector(profile)["GB"]);
+        nativeMovie.AudioLanguages = ["jpn"];
+        nativeMovie.ProductionCountries = ["Tokyo"];
+        Assert.DoesNotContain("JP", PreferenceBuilder.BuildProductionCountryPreferenceVector(profile).Keys);
+        Assert.Equal("Tokyo", Assert.Single(nativeMovie.ProductionCountries));
+        Assert.Equal(1, PreferenceBuilder.BuildProductionCountryPreferenceVector(profile, countryRows: [profile.WatchedItems[1]])["US"]);
+    }
+
+    [Fact]
     public void BuildProductionCountryPreferenceVector_AggregatesAndNormalizes()
     {
         var profile = new UserWatchProfile
@@ -1167,8 +1308,8 @@ public class PreferenceBuilderTests
             ]
         };
         var vector = PreferenceBuilder.BuildProductionCountryPreferenceVector(profile);
-        Assert.Equal(1.0, vector["Japan"], 10);   // appears twice -> dominant -> normalized to 1.0
-        Assert.True(vector["Japan"] > vector["USA"]);
+        Assert.Equal(1.0, vector["JP"], 10);   // two distinct titles -> dominant; name/code aliases do not add mass
+        Assert.True(vector["JP"] > vector["US"]);
     }
 
     [Fact]
@@ -1317,9 +1458,9 @@ public class PreferenceBuilderTests
         };
         var profile = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemId = movieId, Played = true }] };
 
-        var result = PreferenceBuilder.BuildStudioPreferenceSet(profile, lookup);
+        var result = PreferenceBuilder.BuildStudioPreferenceSet(profile, lookup, new Dictionary<Guid, TitleMetadataSnapshot?> { [movieId] = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(1, "A24") });
 
-        Assert.Contains("A24", result);
+        Assert.Contains("producer:tmdb:production-company:1", result);
         Assert.Single(result); // whitespace/empty studios filtered out
     }
 
@@ -1338,9 +1479,9 @@ public class PreferenceBuilderTests
             WatchedItems = [new WatchedItemInfo { ItemId = episodeId, SeriesId = seriesId, Played = true }]
         };
 
-        var result = PreferenceBuilder.BuildStudioPreferenceSet(profile, lookup);
+        var result = PreferenceBuilder.BuildStudioPreferenceSet(profile, lookup, new Dictionary<Guid, TitleMetadataSnapshot?> { [seriesId] = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(2, "HBO producer", "tv") });
 
-        Assert.Contains("HBO", result);
+        Assert.Contains("producer:tmdb:production-company:2", result);
         Assert.Single(result); // blank series studio excluded
     }
 

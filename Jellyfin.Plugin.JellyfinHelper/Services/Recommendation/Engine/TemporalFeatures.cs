@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.TV;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 
@@ -21,48 +23,17 @@ internal static class TemporalFeatures
     /// </param>
     /// <returns>An affinity score between 0 and 1.</returns>
     internal static double ComputeDayOfWeekAffinity(BaseItem candidate, UserWatchProfile userProfile, DateTime? now = null)
-    {
-        if (candidate.Genres is not { Length: > 0 } || userProfile.WatchedItems.Count < 10)
-        {
-            return 0.5;
-        }
+        => ComputeTemporalAffinity(candidate.Genres, userProfile, now ?? DateTime.UtcNow, true, candidate.Id, candidate is Series ? candidate.Id : null);
 
-        var today = (now ?? DateTime.UtcNow).DayOfWeek;
-        var matchCount = 0;
-        var totalToday = 0;
-        var candidateGenreSet = GenreNormalizer.Set(candidate.Genres);
-
-        foreach (var w in userProfile.WatchedItems)
-        {
-            if (!w.LastPlayedDate.HasValue)
-            {
-                continue;
-            }
-
-            if (!w.Played && w.PlayCount <= 0 && w.PlaybackPositionTicks <= 0)
-            {
-                continue;
-            }
-
-            if (w.LastPlayedDate.Value.DayOfWeek != today)
-            {
-                continue;
-            }
-
-            totalToday++;
-            if (w.Genres is not null && GenreNormalizer.Overlaps(candidateGenreSet, w.Genres))
-            {
-                matchCount++;
-            }
-        }
-
-        if (totalToday < 3)
-        {
-            return 0.5;
-        }
-
-        return Math.Clamp((double)matchCount / totalToday, 0.0, 1.0);
-    }
+    /// <summary>Computes day affinity from the exact genres captured with one prediction.</summary>
+    /// <param name="candidateGenres">Captured effective genres, not a later item lookup.</param>
+    /// <param name="userProfile">The already scoped playback profile.</param>
+    /// <param name="predictionTimeUtc">The prediction's single reference clock.</param>
+    /// <param name="excludedItem">Optional target item to exclude.</param>
+    /// <param name="excludedSeries">Optional parent series to exclude.</param>
+    /// <returns>The same bounded affinity used by historical reconstruction.</returns>
+    internal static double ComputeDayOfWeekAffinity(IReadOnlyCollection<string>? candidateGenres, UserWatchProfile userProfile, DateTime predictionTimeUtc, Guid excludedItem = default, Guid? excludedSeries = null)
+        => ComputeTemporalAffinity(candidateGenres, userProfile, predictionTimeUtc, true, excludedItem, excludedSeries);
 
     /// <summary>
     ///     Computes hour-of-day affinity: how well a candidate's genre matches the user's viewing patterns for the current time-of-day bucket.
@@ -75,38 +46,43 @@ internal static class TemporalFeatures
     /// </param>
     /// <returns>An affinity score between 0 and 1.</returns>
     internal static double ComputeHourOfDayAffinity(BaseItem candidate, UserWatchProfile userProfile, DateTime? now = null)
+        => ComputeTemporalAffinity(candidate.Genres, userProfile, now ?? DateTime.UtcNow, false, candidate.Id, candidate is Series ? candidate.Id : null);
+
+    /// <summary>Computes hour affinity from the exact genres captured with one prediction.</summary>
+    /// <param name="candidateGenres">Captured effective genres.</param>
+    /// <param name="userProfile">The already scoped playback profile.</param>
+    /// <param name="predictionTimeUtc">The prediction's single reference clock.</param>
+    /// <param name="excludedItem">Optional target item to exclude.</param>
+    /// <param name="excludedSeries">Optional parent series to exclude.</param>
+    /// <returns>The same bounded affinity used by historical reconstruction.</returns>
+    internal static double ComputeHourOfDayAffinity(IReadOnlyCollection<string>? candidateGenres, UserWatchProfile userProfile, DateTime predictionTimeUtc, Guid excludedItem = default, Guid? excludedSeries = null)
+        => ComputeTemporalAffinity(candidateGenres, userProfile, predictionTimeUtc, false, excludedItem, excludedSeries);
+
+    /// <summary>Reduces dated, strictly earlier playback in one UTC bucket without target/series leakage.</summary>
+    /// <param name="candidateGenres">The exact captured genre source.</param>
+    /// <param name="userProfile">The caller's scoped history.</param>
+    /// <param name="predictionTimeUtc">The exclusive prediction-time boundary.</param>
+    /// <param name="isDay">Selects a weekday rather than hour bucket.</param>
+    /// <param name="excludedItem">Target item identity, if known.</param>
+    /// <param name="excludedSeries">Target parent-series identity, if known.</param>
+    /// <returns>Neutral with fewer than ten profile rows or three eligible bucket observations.</returns>
+    internal static double ComputeTemporalAffinity(IEnumerable<string>? candidateGenres, UserWatchProfile userProfile, DateTime predictionTimeUtc, bool isDay, Guid excludedItem = default, Guid? excludedSeries = null)
     {
-        if (candidate.Genres is not { Length: > 0 } || userProfile.WatchedItems.Count < 10)
+        ArgumentNullException.ThrowIfNull(userProfile);
+        var candidateGenreSet = GenreNormalizer.Set(candidateGenres);
+        if (candidateGenreSet.Count == 0 || userProfile.WatchedItems.Count < 10)
         {
             return 0.5;
         }
 
-        var currentHour = (now ?? DateTime.UtcNow).Hour;
-        var currentBucket = GetTimeBucket(currentHour);
-        var candidateGenreSet = GenreNormalizer.Set(candidate.Genres);
-
+        var reference = DateTimeNormalization.ToUtc(predictionTimeUtc);
         var matchCount = 0;
         var totalInBucket = 0;
 
-        foreach (var w in userProfile.WatchedItems)
+        foreach (var genres in userProfile.WatchedItems.Where(row => EligibleForTemporalBucket(row, reference, isDay, excludedItem, excludedSeries)).Select(row => row.Genres))
         {
-            if (!w.LastPlayedDate.HasValue)
-            {
-                continue;
-            }
-
-            if (!w.Played && w.PlayCount <= 0 && w.PlaybackPositionTicks <= 0)
-            {
-                continue;
-            }
-
-            if (GetTimeBucket(w.LastPlayedDate.Value.Hour) != currentBucket)
-            {
-                continue;
-            }
-
             totalInBucket++;
-            if (w.Genres is not null && GenreNormalizer.Overlaps(candidateGenreSet, w.Genres))
+            if (genres is not null && GenreNormalizer.Overlaps(candidateGenreSet, genres))
             {
                 matchCount++;
             }
@@ -120,11 +96,21 @@ internal static class TemporalFeatures
         return Math.Clamp((double)matchCount / totalInBucket, 0.0, 1.0);
     }
 
-    /// <summary>
-    ///     Maps an hour to a time of day bucket. 0 is night, 1 morning, 2 afternoon, 3 evening.
-    /// </summary>
+    private static bool EligibleForTemporalBucket(WatchedItemInfo row, DateTime reference, bool isDay, Guid excludedItem, Guid? excludedSeries)
+    {
+        if (!row.LastPlayedDate.HasValue || !row.HasPlaybackActivity() || (excludedItem != Guid.Empty && row.ItemId == excludedItem)
+            || (excludedSeries is { } series && series != Guid.Empty && (row.ItemId == series || row.SeriesId == series)))
+        {
+            return false;
+        }
+
+        var played = DateTimeNormalization.ToUtc(row.LastPlayedDate.Value);
+        return played < reference && (isDay ? played.DayOfWeek == reference.DayOfWeek : GetTimeBucket(played.Hour) == GetTimeBucket(reference.Hour));
+    }
+
+    /// <summary>Maps an hour to night, morning, afternoon or evening.</summary>
     /// <param name="hour">The hour of day (0-23).</param>
-    /// <returns>A bucket index (0-3).</returns>
+    /// <returns>The matching bucket index.</returns>
     internal static int GetTimeBucket(int hour) => hour switch
     {
         < 6 => 0,

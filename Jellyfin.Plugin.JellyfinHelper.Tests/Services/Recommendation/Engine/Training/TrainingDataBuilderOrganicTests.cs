@@ -15,6 +15,66 @@ public sealed class TrainingDataBuilderOrganicTests
 {
     private static readonly DateTime Anchor = new(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc);
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CanonicalCollectionTrainingExcludesTargetAliasesAndCountsSiblingCopiesOnce(bool targetAlias)
+    {
+        var user = Guid.NewGuid();
+        var first = Guid.NewGuid();
+        var duplicate = Guid.NewGuid();
+        var sibling = Guid.NewGuid();
+        var target = Guid.NewGuid();
+        var box = Guid.NewGuid();
+        var profile = new UserWatchProfile
+        {
+            UserId = user,
+            WatchedItems =
+            [
+                new() { ItemId = first, ItemType = "Movie", TmdbId = 701, Played = true, LastPlayedDate = Anchor.AddDays(-3), Genres = ["Action"] },
+                new() { ItemId = duplicate, ItemType = "Movie", TmdbId = 701, Played = true, LastPlayedDate = Anchor.AddDays(-2), Genres = ["Action"] },
+                new() { ItemId = target, ItemType = "Movie", TmdbId = targetAlias ? 701 : 703, Played = true, LastPlayedDate = Anchor, Genres = ["Action"] }
+            ]
+        };
+        if (targetAlias) profile.WatchedItems.Add(new() { ItemId = sibling, ItemType = "Movie", TmdbId = 702, Played = true, LastPlayedDate = Anchor.AddDays(-1), Genres = ["Action"] });
+        var ids = profile.WatchedItems.Select(row => row.ItemId).ToArray();
+        var metadata = new LibraryItemMetadata(
+            ids.ToDictionary(id => id, _ => (IReadOnlyList<string>)[]),
+            ids.ToDictionary(id => id, _ => (IReadOnlyList<string>)[]),
+            ids.ToDictionary(id => id, _ => (IReadOnlyList<Guid>)[box]),
+            profile.WatchedItems.ToDictionary(row => row.ItemId, row => row.TmdbId));
+        var examples = TrainingDataBuilder.BuildExamples([], [profile], null, null, null, metadata, null, TestContext.Current.CancellationToken).Examples;
+        var example = Assert.Single(examples, row => row.ObservationId == TrainingExample.CreateTitleObservationId(user, target, targetAlias ? 701 : 703, false) && row.GeneratedAtUtc == Anchor);
+        Assert.Equal(.3, example.Features.CollectionProgressionBoost, 12);
+        Assert.Equal(41, example.Features.ToVector().Length);
+        Assert.Equal(Anchor, profile.WatchedItems.Single(row => row.ItemId == target).LastPlayedDate);
+    }
+
+    [Theory]
+    [InlineData(-1, true)]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    public void OrganicMovieMetadataMustHaveExistedAtThePredictionTime(int acquiredDays, bool available)
+    {
+        var user = Guid.NewGuid();
+        var prior = new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, LastPlayedDate = Anchor.AddDays(-5), Genres = ["Adventure"], Tags = ["pirate", "friendship"] };
+        var target = new WatchedItemInfo
+        {
+            ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, LastPlayedDate = Anchor, Genres = ["Adventure"],
+            TitleMetadata = new TitleMetadataSnapshot { Keywords = ["pirate", "friendship"], FetchedAtUtc = Anchor.AddDays(acquiredDays) }
+        };
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = [prior, target] };
+        var examples = TrainingDataBuilder.BuildExamples([], [profile], TestContext.Current.CancellationToken).Examples;
+        var id = TrainingExample.CreateTitleObservationId(user, target.ItemId, 0, false);
+        var example = Assert.Single(examples, row => row.ObservationId == id);
+        if (available) Assert.Equal(Math.Pow(.5, 5.0 / EngineConstants.GenreDecayHalfLifeDays), example.Features.ContentFitSupport!.Value, 12);
+        else Assert.Null(example.Features.ContentFitSupport);
+        Assert.Equal(available, example.Features.ContentTasteKey.HasValue);
+        Assert.Equal(Anchor, example.GeneratedAtUtc);
+        Assert.Equal(41, example.Features.ToVector().Length);
+        Assert.Equal(Anchor.AddDays(acquiredDays), target.TitleMetadata.FetchedAtUtc);
+    }
+
     [Fact]
     public void BuildExamples_OrganicUserWithoutPriorResults_EmitsOrganicExample()
     {
@@ -159,7 +219,10 @@ public sealed class TrainingDataBuilderOrganicTests
         var metadata = new LibraryItemMetadata(
             new Dictionary<Guid, IReadOnlyList<string>> { [earlierItem] = ["Lionsgate"] },
             new Dictionary<Guid, IReadOnlyList<string>> { [earlierItem] = ["heist"] },
-            new Dictionary<Guid, IReadOnlyList<Guid>> { [earlierItem] = [boxSet] });
+            new Dictionary<Guid, IReadOnlyList<Guid>> { [earlierItem] = [boxSet] })
+        {
+            ProducerMetadata = new Dictionary<Guid, TitleMetadataSnapshot?> { [earlierItem] = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(1, "Lionsgate", fetchedAt: Anchor.AddDays(-2)) }
+        };
 
         // movieId is recommended to A (populating the cross-user studio/tag/boxset lookups) but
         // never to B, so it stays an organic discovery for B.
@@ -176,6 +239,7 @@ public sealed class TrainingDataBuilderOrganicTests
                         ItemId = movieId,
                         ItemType = "Movie",
                         Studios = ["Lionsgate"],
+                        TitleMetadata = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(1, "Lionsgate", fetchedAt: Anchor.AddDays(-2)),
                         Tags = ["heist"],
                         BoxSetIds = [boxSet],
                         Genres = ["Action"]

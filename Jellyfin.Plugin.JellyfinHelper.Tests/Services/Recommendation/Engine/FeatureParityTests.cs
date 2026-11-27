@@ -99,9 +99,10 @@ public sealed class FeatureParityTests
         Assert.True(liveTags.SetEquals(TrainingFeatureComputer.BuildTagPreferenceSetFromCache(profile, tags)));
         Assert.True(liveStudios.SetEquals(TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, studios)));
         Assert.Equal(parentUnavailable, liveTags.Contains("old parent tag"));
-        Assert.Equal(parentUnavailable, liveStudios.Contains("Old Parent Studio"));
+        Assert.DoesNotContain("Old Parent Studio", liveStudios); // Untyped broadcast names remain legacy metadata, not producer evidence.
         Assert.Equal(provenance, liveTags.Contains("episode tag"));
-        Assert.Equal(provenance, liveStudios.Contains("Episode Studio"));
+        Assert.DoesNotContain("Episode Studio", liveStudios);
+        Assert.Equal(provenance ? 2 : 1, row.Studios.Count); // Original unqualified snapshot is preserved.
     }
 
     [Fact]
@@ -158,6 +159,10 @@ public sealed class FeatureParityTests
                 new WatchedItemInfo { ItemId = Guid.NewGuid(), Tags = ["unseen tag"], Studios = ["Unseen Studio"] }
             ]
         };
+        foreach (var row in profile.WatchedItems)
+        {
+            row.TitleMetadata = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(row.IsFavorite ? 2 : 1, row.IsFavorite ? "Favorite Studio" : "Other producer");
+        }
         var context = ExternalCandidateFeatureBuilder.PrepareUserContext(profile);
         Assert.Equal(PreferenceBuilder.BuildTagPreferenceSet(profile, []), context.Tags);
         Assert.Equal(TrainingFeatureComputer.BuildTagPreferenceSetFromCache(profile, []), context.Tags);
@@ -165,9 +170,9 @@ public sealed class FeatureParityTests
         Assert.Equal(TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, []), context.Studios);
         Assert.DoesNotContain("folder tag", context.Tags);
         Assert.DoesNotContain("partial tag", context.Tags);
-        Assert.Contains("Favorite Studio", context.Studios);
+        Assert.Contains("producer:tmdb:production-company:2", context.Studios);
         profile.WatchedItems.Clear();
-        var candidate = new TmdbDiscoverItem { KnownKeywords = ["item tag", "parent tag", "favorite tag", "replayed tag"], KnownStudios = ["Favorite Studio"] };
+        var candidate = new TmdbDiscoverItem { KnownKeywords = ["item tag", "parent tag", "favorite tag", "replayed tag"], KnownStudios = ["Favorite Studio"], TitleMetadata = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(2, "Favorite Studio") };
         var prepared = new ExternalCandidateFeatureBuilder.Context { GenrePreferences = [], PreferredPeople = [], GenreExposure = PreferenceBuilder.BuildGenreExposureAnalysis([], profile), User = context };
         var features = ExternalCandidateFeatureBuilder.Build(candidate, prepared);
         Assert.Equal(1, features.TagSimilarity);

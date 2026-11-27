@@ -175,8 +175,8 @@ public sealed partial class EnsembleScoringStrategy
         }
     }
 
-    /// <summary>Returns only a currently participating global predictor, not an inactive/rejected Neural refresh.</summary>
-    /// <returns>An immutable operating prior or null when no fitted global model participates.</returns>
+    /// <summary>Returns a retained prior for warm borrowing; scoring still requires matching input derivation, never an inactive/rejected Neural refresh.</summary>
+    /// <returns>An immutable retained prior or null when no fitted global model is retained.</returns>
     internal AcceptedPrediction? GetOperatingPrior()
     {
         lock (_syncRoot)
@@ -195,7 +195,7 @@ public sealed partial class EnsembleScoringStrategy
             var neural = mixture.Neural > 0 ? prediction.Neural : null;
             return mixture == prediction.Mixture && ReferenceEquals(neural, prediction.Neural)
                 ? prediction
-                : new AcceptedPrediction(_heuristic, prediction.Learned, neural, mixture, prediction.NeuralCap);
+                : new AcceptedPrediction(_heuristic, prediction.Learned, neural, mixture, prediction.NeuralCap, prediction.FeatureDerivationVersion);
         }
     }
 
@@ -214,7 +214,7 @@ public sealed partial class EnsembleScoringStrategy
             {
                 if (_usesInheritedPrior && _acceptedPrediction is { } previous)
                 {
-                    _acceptedPrediction = new AcceptedPrediction(_heuristic, previous.Learned, null, default, 0);
+                    _acceptedPrediction = new AcceptedPrediction(_heuristic, previous.Learned, null, default, 0, previous.FeatureDerivationVersion);
                     _qualityGateFrozen = true;
                     _neuralBeta = 0;
                 }
@@ -240,7 +240,7 @@ public sealed partial class EnsembleScoringStrategy
                 current = new AdmissionMixture(0, current.Neural);
             }
 
-            var limited = new AcceptedPrediction(_heuristic, prior.Learned, neural, current, prior.NeuralCap);
+            var limited = new AcceptedPrediction(_heuristic, prior.Learned, neural, current, prior.NeuralCap, prior.FeatureDerivationVersion);
             var mixture = limited.Resolve(alpha);
             if (neural is not null)
             {
@@ -248,7 +248,7 @@ public sealed partial class EnsembleScoringStrategy
                 mixture = OperatingMixturePolicy.WithNeuralMinimum(mixture, minimum, alpha, Math.Min(prior.NeuralCap, _alphaMax * NeuralMaxBetaFraction));
             }
 
-            _acceptedPrediction = new AcceptedPrediction(_heuristic, prior.Learned, neural, mixture, _alphaMax * NeuralMaxBetaFraction);
+            _acceptedPrediction = new AcceptedPrediction(_heuristic, prior.Learned, neural, mixture, _alphaMax * NeuralMaxBetaFraction, prior.FeatureDerivationVersion);
             _usesInheritedPrior = true;
             _independentAdmissionEnabled = true;
             _qualityGateFrozen = mixture.Alpha <= 0;
@@ -315,6 +315,12 @@ public sealed partial class EnsembleScoringStrategy
             throw new ArgumentException("Fitting and permanent holdout must not share observation identities.", nameof(holdout));
         }
 
+        // Derivation is provenance, not a label or a new observation identity. Keep permanent
+        // partitions and spent-title protection; older captures cannot pad a sparse current cohort.
+        var derivationVersion = FeatureDerivationContract.SelectTrainingVersion(fit, holdout);
+        fit = FeatureDerivationContract.SelectCohort(fit, derivationVersion);
+        holdout = FeatureDerivationContract.SelectCohort(holdout, derivationVersion);
+
         var (calibration, acceptance) = SplitIndependentHoldout(holdout);
         var spent = GetAcceptedObservationIds();
         if (spent is null)
@@ -322,7 +328,7 @@ public sealed partial class EnsembleScoringStrategy
             return false;
         }
 
-        calibration = EnsembleAdmissionEvaluator.SelectEvaluationBlock(calibration);
+        calibration = EnsembleAdmissionEvaluator.SelectEvaluationBlock(calibration, now);
         var used = spent.Concat(_seedAcceptanceObservations).ToHashSet();
         var freshAcceptance = SelectFreshAcceptanceBlock(acceptance.Where(row => !used.Contains(row.ObservationId)), now);
         if (freshAcceptance is null)
@@ -349,7 +355,8 @@ public sealed partial class EnsembleScoringStrategy
             var reservedThisCycle = new HashSet<Guid>();
             string? Reserve(IReadOnlyCollection<Guid> ids) => ReserveAcceptanceEvidence(ids, context.Bounds.Configuration, reservedThisCycle, inputDigest);
             var examined = new ExaminedAcceptance(Reserve);
-            var decision = EnsembleAdmissionEvaluator.Evaluate(calibration, freshAcceptance, models, now, context.Bounds.AlphaCap, context.Bounds.NeuralCap, examined.Reserve);
+            var decision = EnsembleAdmissionEvaluator.Evaluate(calibration, freshAcceptance, models, now, context.Bounds.AlphaCap, context.Bounds.NeuralCap, examined.Reserve)
+                with { FeatureDerivationVersion = context.Bounds.FeatureDerivationVersion };
             RecordAdmissionAttempt(decision, fit.Count, now);
 
             var batch = new ValidationBatch(calibration, freshAcceptance, models, now) { ReserveEvidence = Reserve };
@@ -390,7 +397,7 @@ public sealed partial class EnsembleScoringStrategy
             cursor = _acceptanceBlockCursor;
         }
 
-        var block = EnsembleAdmissionEvaluator.SelectEvaluationBlock(acceptance, cursor, out var next);
+        var block = EnsembleAdmissionEvaluator.SelectEvaluationBlock(acceptance, cursor, out var next, evaluatedAt);
         lock (_syncRoot)
         {
             if (_independentAdmissionDisposed)
@@ -434,7 +441,11 @@ public sealed partial class EnsembleScoringStrategy
             UpdateObservedMaturity(fit.Where(row => row.IsObserved && row.HasStableObservationId).Select(row => row.ObservationId).Distinct().ToArray());
             var alpha = OperatingMixturePolicy.Maturity(_trainingExampleCount, DefaultSigmoidMidpoint + _sigmoidMidpointOffset, _alphaMin, _alphaMax);
             var configuration = CaptureEvaluationConfiguration();
-            bounds = new PromotionBounds(alpha, alpha * OperatingMixturePolicy.NeuralTarget(_trainingExampleCount, _ownsNeural, available: true), configuration.Floor, configuration, _alphaMin, _trainingExampleCount);
+            FeatureDerivationContract.TryResolveUniformVersion(fit, out var derivationVersion);
+            bounds = new PromotionBounds(alpha, alpha * OperatingMixturePolicy.NeuralTarget(_trainingExampleCount, _ownsNeural, available: true), configuration.Floor, configuration, _alphaMin, _trainingExampleCount)
+            {
+                FeatureDerivationVersion = derivationVersion
+            };
             bundle = _acceptedBundle;
             pinned = _pinnedSharedNeuralPrior;
         }
@@ -469,6 +480,11 @@ public sealed partial class EnsembleScoringStrategy
         if (_acceptedBundle is null)
         {
             return "Legacy";
+        }
+
+        if (_acceptedBundle.Utility?.IsChoiceRanking == true)
+        {
+            return "ChoiceRanking";
         }
 
         return _acceptedBundle.IsProvisional ? "Provisional" : "Verified";
@@ -568,7 +584,8 @@ public sealed partial class EnsembleScoringStrategy
 
     private ProvisionalRetention? TryCalibrateRetainedProvisional(ChallengerContext context, TrainedCandidates candidates, ValidationBatch batch)
     {
-        if (_acceptedBundle is not { IsProvisional: true, Retired: false })
+        if (_acceptedBundle is not { IsProvisional: true, Retired: false }
+            || !FeatureDerivationContract.IsCompatible(context.Bounds.FeatureDerivationVersion, context.Incumbent.FeatureDerivationVersion))
         {
             return null;
         }
@@ -592,7 +609,7 @@ public sealed partial class EnsembleScoringStrategy
         var models = batch.Models with
         {
             Learned = new PenalizedPredictor(context.Incumbent.Learned, context.Bounds.Floor),
-            Neural = context.Incumbent.Neural is null ? null : new PenalizedPredictor(context.Incumbent.Neural, context.Bounds.Floor)
+            Neural = CompatibleRetainedNeural(context)
         };
         var calibration = EnsembleAdmissionEvaluator.EvaluateServingCalibration(batch.Calibration, models, reduced, batch.EvaluatedAt);
         if (calibration is not null && current.Neural > 0 && context.Incumbent.Neural is { HasTrainedParameters: true } && HasUsableNeuralCalibration(calibration))
@@ -664,6 +681,11 @@ public sealed partial class EnsembleScoringStrategy
 
         return null;
     }
+
+    private static PenalizedPredictor? CompatibleRetainedNeural(ChallengerContext context)
+        => context.Incumbent.Neural is { } retained && FeatureDerivationContract.IsCompatible(context.Bounds.FeatureDerivationVersion, retained.FeatureDerivationVersion)
+            ? new PenalizedPredictor(retained, context.Bounds.Floor)
+            : null;
 
     private static string ComputeOperatingInputDigest(IReadOnlyList<TrainingExample> fit, IReadOnlyList<TrainingExample> calibration, PromotionBounds bounds, NeuralScoringStrategy.PredictionSnapshot? neuralPrior)
     {
@@ -751,7 +773,11 @@ public sealed partial class EnsembleScoringStrategy
             var alphaCap = OperatingMixturePolicy.Maturity(_trainingExampleCount, DefaultSigmoidMidpoint + _sigmoidMidpointOffset, _alphaMin, _alphaMax);
             var neuralCap = alphaCap * OperatingMixturePolicy.NeuralTarget(_trainingExampleCount, _ownsNeural, available: true);
             var configuration = CaptureEvaluationConfiguration();
-            var context = new ChallengerContext(learned, neural, _acceptedPrediction!, new PromotionBounds(alphaCap, neuralCap, configuration.Floor, configuration, _alphaMin, _trainingExampleCount));
+            FeatureDerivationContract.TryResolveUniformVersion(fit, out var derivationVersion);
+            var context = new ChallengerContext(learned, neural, _acceptedPrediction!, new PromotionBounds(alphaCap, neuralCap, configuration.Floor, configuration, _alphaMin, _trainingExampleCount)
+            {
+                FeatureDerivationVersion = derivationVersion
+            });
             // Absence is a pinned result too. Resolve before fitting, not from a later inherited serving refresh.
             var sharedPrior = _pinnedSharedNeuralPrior ?? (_sharedPredictionProvider is { } provider ? new NeuralTrainingPrior(provider()) : null);
             SaveAssessment(evaluatedAt);
@@ -767,7 +793,7 @@ public sealed partial class EnsembleScoringStrategy
         if (context.Neural is { } challenger && challenger.Train(fit, calibration))
         {
             fittedNeural = challenger;
-            neural = challenger.CapturePredictionSnapshot();
+            neural = challenger.CapturePredictionSnapshot(context.Bounds.FeatureDerivationVersion);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -783,12 +809,15 @@ public sealed partial class EnsembleScoringStrategy
 
     private static NeuralScoringStrategy.PredictionSnapshot? ResolveNeuralTrainingPrior(ChallengerContext context)
     {
-        if (context.SharedNeuralPrior is { } supplied)
+        var prior = context.SharedNeuralPrior?.Prediction;
+        if (context.SharedNeuralPrior is null && context.Incumbent.Resolve(context.Bounds.Configuration.Maximum).Neural > 0)
         {
-            return supplied.Prediction;
+            prior = context.Incumbent.Neural;
         }
 
-        return context.Incumbent.Mixture.Neural > 0 ? context.Incumbent.Neural : null;
+        return prior is not null && FeatureDerivationContract.IsCompatible(context.Bounds.FeatureDerivationVersion, prior.FeatureDerivationVersion)
+            ? prior
+            : null;
     }
 
     private AdmissionModels BuildAdmissionModels(ChallengerContext context, TrainedCandidates candidates)
@@ -818,6 +847,14 @@ public sealed partial class EnsembleScoringStrategy
 
     private HistoricalRestoration TryRestoreAgainstChallenger(ChallengerContext context, TrainedCandidates candidates, AdmissionDecision decision, ValidationBatch batch, CancellationToken cancellationToken)
     {
+        // Archives currently use ordinary mixed-outcome assessment. Do not let an
+        // unassessable archive veto an independently accepted choice-ranking challenger.
+        var acceptance = EnsembleAdmissionEvaluator.SelectOrdinaryAcceptanceEvidence(batch.Calibration, batch.Acceptance, batch.EvaluatedAt);
+        if (!ShouldAssessOrdinaryArchive(decision, acceptance, batch.EvaluatedAt))
+        {
+            return HistoricalRestoration.NotSelected;
+        }
+
         var store = new AcceptedModelStore(_statePath, _logger);
         var historical = store.ReadHistory();
         if (historical.Length == 0)
@@ -826,11 +863,15 @@ public sealed partial class EnsembleScoringStrategy
         }
 
         var configuration = context.Bounds.Configuration;
-        var attempted = new AcceptedPrediction(_heuristic, candidates.Learned, candidates.Neural, decision.Candidate, context.Bounds.NeuralCap);
+        var attempted = new AcceptedPrediction(_heuristic, candidates.Learned, candidates.Neural, decision.Candidate, context.Bounds.NeuralCap, context.Bounds.FeatureDerivationVersion);
         var calibrated = EnsembleAdmissionEvaluator.EvaluateFixedVersion(batch.Calibration, batch.Models.Heuristic, new PinnedMixturePredictor(attempted, configuration.Maximum, configuration.Floor), batch.Models.Incumbent ?? batch.Models.Heuristic, batch.EvaluatedAt);
-        var restoration = new RestorationContext(batch.Calibration, batch.Acceptance, context.Incumbent, configuration.Floor, batch.EvaluatedAt, calibrated?.CandidateLoss ?? double.PositiveInfinity, batch.Models.Learned, configuration) { ReserveEvidence = batch.ReserveEvidence };
+        var restoration = new RestorationContext(batch.Calibration, acceptance, context.Incumbent, configuration.Floor, batch.EvaluatedAt, calibrated?.CandidateLoss ?? double.PositiveInfinity, batch.Models.Learned, configuration) { ReserveEvidence = batch.ReserveEvidence };
         return TryRestoreHistoricalModel(restoration, historical, store, cancellationToken);
     }
+
+    internal static bool ShouldAssessOrdinaryArchive(AdmissionDecision decision, IReadOnlyList<TrainingExample> acceptance, DateTime evaluatedAt)
+        => !(decision.Accepted && decision.Utility.IsChoiceRanking)
+            && EnsembleAdmissionEvaluator.HasOrdinaryRankingSupport(acceptance, evaluatedAt);
 
     private void TryWithdrawOnFreshEvidence(ChallengerContext context, ValidationBatch batch, CancellationToken cancellationToken)
     {
@@ -869,6 +910,8 @@ public sealed partial class EnsembleScoringStrategy
             var bundle = new AcceptedModelBundle
             {
                 Version = provisional is null ? 1 : 2,
+                FeatureDerivationVersion = FeatureDerivationContract.PublicationVersion(bounds.FeatureDerivationVersion, provisional is { RetainedParameters: true }, _acceptedBundle?.FeatureDerivationVersion ?? 0),
+                NeuralFeatureDerivationVersion = candidates.Neural?.FeatureDerivationVersion ?? 0,
                 IsProvisional = provisional is not null,
                 CalibrationLoss = provisional?.Calibration.MixtureLoss,
                 CalibrationTitleCount = provisional?.Calibration.Titles ?? 0,
@@ -902,7 +945,7 @@ public sealed partial class EnsembleScoringStrategy
             }
 
             // After the atomic disk commit, finish publication even if cancellation arrived meanwhile.
-            _acceptedPrediction = new AcceptedPrediction(_heuristic, candidates.Learned, candidates.Neural, decision.Candidate, bounds.NeuralCap);
+            _acceptedPrediction = new AcceptedPrediction(_heuristic, candidates.Learned, candidates.Neural, decision.Candidate, bounds.NeuralCap, bundle.FeatureDerivationVersion);
             _acceptedBundle = bundle;
             _lastKnownAcceptedRevision = bundle.Revision;
             _supersededCheckpoint = null;
@@ -994,6 +1037,8 @@ public sealed partial class EnsembleScoringStrategy
             var retired = new AcceptedModelBundle
             {
                 Version = previous.Version,
+                FeatureDerivationVersion = previous.FeatureDerivationVersion,
+                NeuralFeatureDerivationVersion = previous.NeuralFeatureDerivationVersion,
                 IsProvisional = previous.IsProvisional,
                 CalibrationLoss = previous.CalibrationLoss,
                 CalibrationTitleCount = previous.CalibrationTitleCount,
@@ -1031,7 +1076,7 @@ public sealed partial class EnsembleScoringStrategy
             _acceptedBundle = retired;
             _acceptanceLedgerRequired = retired.AcceptanceLedgerRequired;
             _spentAcceptanceObservations.UnionWith(ids);
-            _acceptedPrediction = new AcceptedPrediction(_heuristic, incumbent.Learned, incumbent.Neural, default, incumbent.NeuralCap);
+            _acceptedPrediction = new AcceptedPrediction(_heuristic, incumbent.Learned, incumbent.Neural, default, incumbent.NeuralCap, incumbent.FeatureDerivationVersion);
             _qualityGateFrozen = true;
             _neuralBeta = 0;
             _lastAdmission = new AdmissionDecision(false, "IncumbentWithdrawnOnNewEvidence", default, _lastAdmission!.Evidence, evidence);
@@ -1077,7 +1122,7 @@ public sealed partial class EnsembleScoringStrategy
         _legacyWithdrawalObservations = ids;
         _acceptanceLedgerRequired = assessment.AcceptanceLedgerRequired;
         _spentAcceptanceObservations.UnionWith(ids);
-        _acceptedPrediction = new AcceptedPrediction(_heuristic, incumbent.Learned, incumbent.Neural, default, incumbent.NeuralCap);
+        _acceptedPrediction = new AcceptedPrediction(_heuristic, incumbent.Learned, incumbent.Neural, default, incumbent.NeuralCap, incumbent.FeatureDerivationVersion);
         _qualityGateFrozen = true;
         _neuralBeta = 0;
         _lastAdmission = decision;
@@ -1129,9 +1174,16 @@ public sealed partial class EnsembleScoringStrategy
 
     private HistoricalCandidate? CalibrateHistoricalCandidate(AcceptedModelBundle bundle, RestorationContext context, PenalizedPredictor heuristic, PinnedMixturePredictor current)
     {
+        if (!FeatureDerivationContract.TryResolveUniformVersion(context.Calibration.Concat(context.Acceptance), out var derivationVersion)
+            || bundle.FeatureDerivationVersion != derivationVersion)
+        {
+            // Keep older archives intact; current evidence cannot silently relabel an old receipt.
+            return null;
+        }
+
         var learned = new LearnedScoringStrategy.PredictionSnapshot(bundle.Learned);
-        var neural = bundle.Neural is null ? null : new NeuralScoringStrategy.PredictionSnapshot(bundle.Neural);
-        var prediction = new AcceptedPrediction(_heuristic, learned, neural, bundle.Mixture, bundle.NeuralCap);
+        var neural = bundle.Neural is null ? null : new NeuralScoringStrategy.PredictionSnapshot(bundle.Neural, bundle.NeuralFeatureDerivationVersion);
+        var prediction = new AcceptedPrediction(_heuristic, learned, neural, bundle.Mixture, bundle.NeuralCap, bundle.FeatureDerivationVersion);
         var scorer = new PinnedMixturePredictor(prediction, context.Configuration.Maximum, context.Floor);
         var metrics = EnsembleAdmissionEvaluator.EvaluateFixedVersion(context.Calibration, heuristic, scorer, current, context.ReferenceTime);
         if (metrics?.CandidateLoss is not double loss || !double.IsFinite(loss)
@@ -1190,6 +1242,8 @@ public sealed partial class EnsembleScoringStrategy
 
             var restored = new AcceptedModelBundle
             {
+                FeatureDerivationVersion = original.FeatureDerivationVersion,
+                NeuralFeatureDerivationVersion = original.NeuralFeatureDerivationVersion,
                 Learned = original.Learned,
                 Neural = original.Neural,
                 Mixture = original.Mixture,
@@ -1275,8 +1329,8 @@ public sealed partial class EnsembleScoringStrategy
         var learned = LearnedScoringStrategy.FromAcceptedParameters(bundle.Learned);
         _acceptedLearnedTrainer = learned;
         _acceptedNeuralTrainer = _ownsNeural && bundle.Neural is not null ? NeuralScoringStrategy.FromParameters(bundle.Neural) : null;
-        var neural = bundle.Neural is null ? null : new NeuralScoringStrategy.PredictionSnapshot(bundle.Neural);
-        _acceptedPrediction = new AcceptedPrediction(_heuristic, learned.CapturePredictionSnapshot(), neural, bundle.Retired ? default : bundle.Mixture, bundle.NeuralCap);
+        var neural = bundle.Neural is null ? null : new NeuralScoringStrategy.PredictionSnapshot(bundle.Neural, bundle.NeuralFeatureDerivationVersion);
+        _acceptedPrediction = new AcceptedPrediction(_heuristic, learned.CapturePredictionSnapshot(), neural, bundle.Retired ? default : bundle.Mixture, bundle.NeuralCap, bundle.FeatureDerivationVersion);
         _acceptedBundle = bundle;
         _acceptanceLedgerRequired = bundle.AcceptanceLedgerRequired;
         _independentAdmissionEnabled = true;
@@ -1524,7 +1578,7 @@ public sealed partial class EnsembleScoringStrategy
         _requiresIndependentRecovery = true;
         EnableIndependentAdmission();
         var previous = _acceptedPrediction!;
-        _acceptedPrediction = new AcceptedPrediction(_heuristic, previous.Learned, previous.Neural, default, previous.NeuralCap);
+        _acceptedPrediction = new AcceptedPrediction(_heuristic, previous.Learned, previous.Neural, default, previous.NeuralCap, previous.FeatureDerivationVersion);
         _neuralBeta = 0;
         _acceptanceLedgerRequired |= requireLedger && _statePath is not null;
         _lastAdmission = AdmissionDecision.Unknown(reason, 0, 0);
@@ -1581,6 +1635,8 @@ public sealed partial class EnsembleScoringStrategy
     private readonly record struct PromotionBounds(double AlphaCap, double NeuralCap, double Floor, EvaluationConfiguration Configuration, double Minimum, int MaturityCount)
     {
         public string? InputDigest { get; init; }
+
+        public int FeatureDerivationVersion { get; init; }
     }
 
     private readonly record struct ChallengerContext(LearnedScoringStrategy Learned, NeuralScoringStrategy? Neural, AcceptedPrediction Incumbent, PromotionBounds Bounds)

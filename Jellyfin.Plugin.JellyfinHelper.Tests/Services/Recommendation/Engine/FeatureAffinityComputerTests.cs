@@ -52,6 +52,57 @@ public sealed class FeatureAffinityComputerTests
         Assert.Equal(0.0, SimilarityComputer.ComputeProductionLocationAffinity(["Japan"], new Dictionary<string, double>(Ci)));
     }
 
+    [Theory]
+    [InlineData("US", "United States of America")]
+    [InlineData("JP", "Japan")]
+    [InlineData("DE", "Germany")]
+    public void CanonicalCountryAffinityJoinsRecognizedCodesAndNamesWithoutDuplicateMass(string code, string name)
+    {
+        var countries = new[] { code, code, "GB" };
+        var preferences = new Dictionary<string, double>(Ci) { [name] = 1 };
+        Assert.Equal(.5, SimilarityComputer.ComputeProductionLocationAffinity(countries, preferences), 12);
+        Assert.Equal(1, SimilarityComputer.ComputeProductionLocationAffinity([name], new Dictionary<string, double>(Ci) { [code] = 1 }), 12);
+        Assert.Equal(new[] { code, code, "GB" }, countries);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("Tokyo")]
+    [InlineData("Paris")]
+    [InlineData("English")]
+    [InlineData("jpn audio")]
+    [InlineData("Congo")]
+    [InlineData("Korea")]
+    [InlineData("Georgia")]
+    [InlineData("ZZ")]
+    [InlineData("United States / Canada")]
+    public void CanonicalCountryUnknownLocationsAndAmbiguousLabelsStayNeutral(string? value)
+    {
+        Assert.Null(CountryIdentity.Canonical(value));
+        Assert.Equal(0, SimilarityComputer.ComputeProductionLocationAffinity([value!], new Dictionary<string, double>(Ci) { [value ?? "US"] = 1, ["JP"] = 1 }));
+    }
+
+    [Fact]
+    public void CanonicalCountryAliasesAreFiniteDeduplicatedAndKeepTheirRawDisplayProvenance()
+    {
+        var raw = new[] { " United States of America ", "USA", "us", "Berlin", "DE" };
+        var preferences = new Dictionary<string, double>(Ci) { ["US"] = .2, ["United States of America"] = .8, ["Germany"] = double.NaN, ["JP"] = double.PositiveInfinity, ["GB"] = -1 };
+        Assert.Equal(new[] { "DE", "US" }, CountryIdentity.Set(raw).Order(StringComparer.Ordinal));
+        Assert.Equal(.4, SimilarityComputer.ComputeProductionLocationAffinity(raw, preferences), 12);
+        Assert.Equal(" United States of America ", CountryIdentity.FirstPreferred(raw, preferences));
+        Assert.Null(CountryIdentity.FirstPreferred(["Berlin"], preferences));
+        Assert.Empty(CountryIdentity.Set(null));
+        Assert.Equal("JP", CountryIdentity.Canonical("JPN"));
+        Assert.Equal("GB", CountryIdentity.Canonical("United Kingdom of Great Britain and Northern Ireland"));
+        Assert.Equal("CZ", CountryIdentity.Canonical("Czech Republic"));
+        Assert.Equal("RU", CountryIdentity.Canonical("Russian Federation"));
+        Assert.Equal("KR", CountryIdentity.Canonical("Republic of Korea"));
+        Assert.Equal("KP", CountryIdentity.Canonical("Democratic People's Republic of Korea"));
+        Assert.Equal(1, CountryIdentity.Weights(new Dictionary<string, double> { ["US"] = 2 })["US"]);
+        Assert.Equal(new[] { " United States of America ", "USA", "us", "Berlin", "DE" }, raw);
+    }
+
     [Fact]
     public void InheritedTagSimilarity_NullOrEmptyInputs_ReturnZero()
     {

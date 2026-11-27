@@ -48,7 +48,7 @@ public class SeerrDiscoveryDtoTests
         Assert.Equal(0, GetProp(obj, "Id"));
         Assert.Equal(string.Empty, GetProp(obj, "Name"));
         Assert.Null(GetProp(obj, "Character"));
-        Assert.Equal(0, GetProp(obj, "Order"));
+        Assert.Null(GetProp(obj, "Order"));
     }
 
     [Fact]
@@ -99,14 +99,12 @@ public class SeerrDiscoveryDtoTests
     }
 
     [Fact]
-    public void SeerrCredits_DefaultsAreEmptyLists_NotNull()
+    public void SeerrCredits_OmittedFieldsRemainUnknown()
     {
         var t = Resolve("SeerrCredits");
         var obj = Activator.CreateInstance(t)!;
-        Assert.NotNull(GetProp(obj, "Cast"));
-        Assert.NotNull(GetProp(obj, "Crew"));
-        Assert.Empty((IEnumerable)GetProp(obj, "Cast")!);
-        Assert.Empty((IEnumerable)GetProp(obj, "Crew")!);
+        Assert.Null(GetProp(obj, "Cast"));
+        Assert.Null(GetProp(obj, "Crew"));
     }
 
     // SeerrMediaDetailResponse

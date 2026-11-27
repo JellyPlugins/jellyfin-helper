@@ -3,6 +3,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
+using Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
@@ -145,7 +146,8 @@ public sealed class ExternalCandidateFeatureImputationTests
         Assert.Equal(0.0, features.ToModelVector(null)[(int)FeatureIndex.PeopleGenreInteraction]);
         var library = features.Copy();
         library.IsExternalCandidate = false;
-        Assert.Equal(library.ToVector().Take((int)FeatureIndex.ContentFitAffinity), library.ToModelVector(secondMeans).Take((int)FeatureIndex.ContentFitAffinity));
+        Assert.Equal(secondMeans[(int)FeatureIndex.PeopleSimilarity], library.ToModelVector(secondMeans)[(int)FeatureIndex.PeopleSimilarity]);
+        Assert.Equal(library.ToVector(), original);
         Assert.Equal(secondMeans.Skip((int)FeatureIndex.ContentFitAffinity), library.ToModelVector(secondMeans).Skip((int)FeatureIndex.ContentFitAffinity));
     }
 
@@ -249,6 +251,164 @@ public sealed class ExternalCandidateFeatureImputationTests
         Assert.Equal(0.0, features.TagSimilarity, 9);
         Assert.Equal(0.0, features.FranchiseAffinity, 9);
     }
+
+    [Theory]
+    [InlineData("omitted", false, .65, .2)]
+    [InlineData("null", false, .65, .2)]
+    [InlineData("negative", false, .65, .2)]
+    [InlineData("zero", true, 0, 0)]
+    [InlineData("positive", true, .8, .5)]
+    public void NumericSemanticsMissingAndKnownZeroUseDifferentModelCoordinates(string state, bool known, double critic, double popularity)
+    {
+        var values = state switch
+        {
+            "null" => ",\"voteAverage\":null,\"popularity\":null",
+            "negative" => ",\"voteAverage\":-1,\"popularity\":-5",
+            "zero" => ",\"voteAverage\":0,\"popularity\":0",
+            "positive" => ",\"voteAverage\":8,\"popularity\":100",
+            _ => ""
+        };
+        var candidate = System.Text.Json.JsonSerializer.Deserialize<TmdbDiscoverItem>("{\"id\":700,\"genreIds\":[28]" + values + "}")!;
+        var means = NumericMeans(.65, .2);
+        var features = BuildNumericFeatures(candidate, means);
+        Assert.Equal(known, candidate.HasRatingMetadata);
+        Assert.Equal(known, candidate.HasPopularityMetadata);
+        Assert.Equal(known, features.HasRatingMetadata);
+        Assert.Equal(known, features.HasPopularityMetadata);
+        Assert.Equal(known, features.IsExternalFeatureKnown(FeatureIndex.CombinedCriticScore));
+        Assert.Equal(known, features.IsExternalFeatureKnown(FeatureIndex.PopularityScore));
+        Assert.Equal(critic, features.CombinedCriticScore, 10);
+        Assert.Equal(popularity, features.PopularityScore, 10);
+        var raw = features.ToVector();
+        foreach (var model in new[] { means, NumericMeans(.25, .75) })
+        {
+            var vector = features.ToModelVector(model);
+            var expectedCritic = known ? critic : model[2];
+            Assert.Equal(expectedCritic, vector[2], 10);
+            Assert.Equal(known ? popularity : model[16], vector[16], 10);
+            Assert.Equal(features.GenreSimilarity * expectedCritic, vector[7], 10);
+            Assert.Equal(features.RecencyScore * expectedCritic, vector[22], 10);
+            Assert.Equal(41, vector.Length);
+        }
+        Assert.Equal(raw, features.ToVector());
+    }
+
+    public static TheoryData<double> NonFiniteNumericSources() => new() { double.NaN, double.PositiveInfinity, double.NegativeInfinity };
+
+    [Theory]
+    [MemberData(nameof(NonFiniteNumericSources))]
+    public void NumericSemanticsNonFiniteSourcesStayUnavailableAcrossDtosAndModels(double value)
+    {
+        var candidate = new TmdbDiscoverItem { Id = 700, VoteAverage = value, Popularity = value, GenreIds = [28] };
+        var detail = new SeerrMediaDetailResponse { VoteAverage = value, Popularity = value };
+        var external = new ExternalDiscoveryCandidate { VoteAverage = value, Popularity = value };
+        Assert.Null(candidate.VoteAverageValue);
+        Assert.Null(candidate.PopularityValue);
+        Assert.False(detail.HasRatingMetadata);
+        Assert.False(detail.HasPopularityMetadata);
+        Assert.False(external.HasRatingMetadata);
+        Assert.False(external.HasPopularityMetadata);
+        var vector = BuildNumericFeatures(candidate, NumericMeans(.65, .2)).ToModelVector(NumericMeans(.25, .75));
+        Assert.Equal(.25, vector[2]);
+        Assert.Equal(.75, vector[16]);
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData(-1.0, false)]
+    [InlineData(0.0, true)]
+    [InlineData(8.0, true)]
+    public void NumericSemanticsTraktNullRatingAndAbsentPopularityAreNotZeroEvidence(double? rating, bool knownRating)
+    {
+        var mapped = Assert.Single(TraktMapper.MapMediaItems([new() { Ids = new() { Tmdb = 700 }, Rating = rating }], "movie", out var dropped));
+        Assert.Equal(0, dropped);
+        Assert.Equal(knownRating, mapped.HasRatingMetadata);
+        Assert.False(mapped.HasPopularityMetadata);
+        var features = BuildNumericFeatures(new TmdbDiscoverItem { Id = 700, GenreIds = [28], VoteAverageValue = mapped.VoteAverageValue, PopularityValue = mapped.PopularityValue }, NumericMeans(.65, .2));
+        Assert.Equal(knownRating ? rating.GetValueOrDefault() / 10 : .65, features.ToModelVector(NumericMeans(.65, .2))[2], 10);
+        Assert.Equal(.2, features.ToModelVector(NumericMeans(.65, .2))[16], 10);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [InlineData(null)]
+    public void NumericSemanticsFallbackFeedbackPreservesKnownZeroAndUnknownLegacyPresence(bool? known)
+    {
+        var user = Guid.NewGuid();
+        var shown = new DateTime(2026, 8, 15, 12, 0, 0, DateTimeKind.Utc);
+        var entry = new DiscoveryFeedbackEntry { TmdbId = 700, Genres = ["Action"], ShownAtUtc = shown, RequestedAtUtc = shown.AddDays(1), HasRatingMetadata = known, HasPopularityMetadata = known };
+        var built = DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples([new() { UserId = user, Entries = [entry] }], new Dictionary<Guid, UserWatchProfile>(), null, NumericMeans(.65, .2), TestContext.Current.CancellationToken);
+        var features = Assert.Single(built.Examples).Features;
+        Assert.Equal(known, features.HasRatingMetadata);
+        Assert.Equal(known, features.HasPopularityMetadata);
+        Assert.Equal(known == false ? .65 : 0, features.ToModelVector(NumericMeans(.65, .2))[2]);
+        Assert.Equal(known == false ? .2 : 0, features.ToModelVector(NumericMeans(.65, .2))[16]);
+        Assert.Equal(shown.AddDays(1), Assert.Single(built.Examples).GeneratedAtUtc);
+    }
+
+    [Fact]
+    public void NumericSemanticsLegacyCapturedVectorsAreNotReinterpretedByLaterPresenceOrMeans()
+    {
+        var stored = System.Text.Json.JsonSerializer.Deserialize<CandidateFeatures>("{\"IsExternalCandidate\":true,\"GenreSimilarity\":0.8,\"CombinedCriticScore\":0.123,\"PopularityScore\":0.456,\"RecencyScore\":0.7}")!;
+        var original = stored.ToVector();
+        var shown = new DateTime(2026, 8, 15, 12, 0, 0, DateTimeKind.Utc);
+        var entry = new DiscoveryFeedbackEntry { TmdbId = 700, ShownAtUtc = shown, RequestedAtUtc = shown.AddDays(1), PredictionEvidenceAtUtc = shown, ScoringFeatures = stored, HasRatingMetadata = false, HasPopularityMetadata = false };
+        var features = Assert.Single(DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples([new() { UserId = Guid.NewGuid(), Entries = [entry] }], new Dictionary<Guid, UserWatchProfile>(), null, NumericMeans(.65, .2), TestContext.Current.CancellationToken).Examples).Features;
+        Assert.Null(features.HasRatingMetadata);
+        Assert.Null(features.HasPopularityMetadata);
+        Assert.Equal(original, features.ToVector());
+        foreach (var vector in new[] { NumericMeans(.65, .2), NumericMeans(.25, .75) }.Select(features.ToModelVector))
+        {
+            Assert.Equal(.123, vector[2]);
+            Assert.Equal(.456, vector[16]);
+            Assert.Equal(.8 * .123, vector[7]);
+            Assert.Equal(.7 * .123, vector[22]);
+        }
+        Assert.Equal(original, stored.ToVector());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NumericSemanticsDetailAndCardBoundariesKeepPresenceAndKnownZero(bool knownZero)
+    {
+        var external = new ExternalDiscoveryCandidate { TmdbId = 700, MediaType = "movie", VoteAverageValue = knownZero ? 0 : null, PopularityValue = knownZero ? 0 : null };
+        var type = typeof(Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery.SeerrDiscoveryService);
+        var flags = System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic;
+        var item = (TmdbDiscoverItem)type.GetMethod("ToTmdbItem", flags)!.Invoke(null, [external])!;
+        Assert.Equal(knownZero, item.HasRatingMetadata);
+        Assert.Equal(knownZero, item.HasPopularityMetadata);
+        var detail = new SeerrMediaDetailResponse { VoteAverage = 8, Popularity = 100 };
+        type.GetMethod("ApplyEnrichedMetadata", flags)!.Invoke(null, [item, detail, false]);
+        Assert.Equal(knownZero ? 0 : 8, item.VoteAverage);
+        Assert.Equal(knownZero ? 0 : 100, item.Popularity);
+        Assert.True(item.HasRatingMetadata);
+        Assert.True(item.HasPopularityMetadata);
+        var features = BuildNumericFeatures(item, NumericMeans(.65, .2));
+        var card = (DiscoveryRecommendation)type.GetMethod("BuildRecommendation", flags)!.Invoke(null, [item, features, .5, new List<string>(), new HashSet<string>(), null, null])!;
+        Assert.True(card.HasRatingMetadata);
+        Assert.True(card.HasPopularityMetadata);
+        Assert.True(card.Clone().HasRatingMetadata);
+        Assert.True(card.Clone().HasPopularityMetadata);
+        Assert.Equal(features.ToVector(), card.ScoringFeatures!.ToVector());
+    }
+
+    private static double[] NumericMeans(double critic, double popularity)
+    {
+        var means = Enumerable.Repeat(.37, CandidateFeatures.FeatureCount).ToArray();
+        means[2] = critic;
+        means[16] = popularity;
+        return means;
+    }
+
+    private static CandidateFeatures BuildNumericFeatures(TmdbDiscoverItem item, double[] means)
+        => ExternalCandidateFeatureBuilder.Build(item, new ExternalCandidateFeatureBuilder.Context
+        {
+            GenrePreferences = new Dictionary<string, double> { ["Action"] = 1 }, PreferredPeople = [],
+            GenreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(new Dictionary<string, double> { ["Action"] = 1 }, new UserWatchProfile()),
+            User = ExternalCandidateFeatureBuilder.PrepareUserContext(null), FeatureMeans = means
+        });
 
     private static UserWatchProfile BuildActionHeavyProfile()
     {

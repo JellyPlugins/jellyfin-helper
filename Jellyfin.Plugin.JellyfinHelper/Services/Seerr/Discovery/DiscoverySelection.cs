@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
@@ -15,8 +16,9 @@ internal static class DiscoverySelection
     /// <param name="candidates">Final-scored candidates, already ordered by source rank when applicable.</param>
     /// <param name="count">Maximum pool size.</param>
     /// <param name="preserveSourceRank">Keeps Trakt's order and soft quality policy unchanged.</param>
+    /// <param name="targetSeriesShare">Optional captured soft personal movie/series mix.</param>
     /// <returns>A new selection; the candidates and their scores are never modified.</returns>
-    internal static List<DiscoveryRecommendation> Select(IReadOnlyList<DiscoveryRecommendation> candidates, int count, bool preserveSourceRank = false)
+    internal static List<DiscoveryRecommendation> Select(IReadOnlyList<DiscoveryRecommendation> candidates, int count, bool preserveSourceRank = false, double? targetSeriesShare = null)
     {
         ArgumentNullException.ThrowIfNull(candidates);
         if (count <= 0)
@@ -26,10 +28,11 @@ internal static class DiscoverySelection
 
         if (preserveSourceRank)
         {
-            return candidates.Take(count).ToList();
+            return candidates.Where(candidate => ScoringHelper.IsContentEligible(candidate.ScoringFeatures)).Take(count).ToList();
         }
 
         var remaining = candidates
+            .Where(candidate => ScoringHelper.IsContentEligible(candidate.ScoringFeatures))
             .Where(candidate => !candidate.IsPersonalized || candidate.Score >= MinimumPersonalScore)
             .OrderByDescending(candidate => candidate.Score)
             .ThenBy(candidate => candidate.MediaType, StringComparer.Ordinal)
@@ -38,15 +41,31 @@ internal static class DiscoverySelection
         var selected = new List<DiscoveryRecommendation>(Math.Min(count, remaining.Count));
         var genres = remaining.ToDictionary(candidate => candidate, candidate => GenreNormalizer.Set(candidate.Genres));
         var collections = new Dictionary<int, int>();
+        var represented = new HashSet<Guid>();
         while (selected.Count < count && remaining.Count > 0)
         {
-            var best = BestCandidate(remaining, selected, genres, collections);
+            var best = BestCandidate(remaining, selected, genres, collections, coherentOnly: true, represented: represented, targetSeriesShare: targetSeriesShare);
+            if (best < 0)
+            {
+                best = BestCandidate(remaining, selected, genres, collections, coherentOnly: true, targetSeriesShare: targetSeriesShare);
+            }
+
+            if (best < 0)
+            {
+                best = BestCandidate(remaining, selected, genres, collections, targetSeriesShare: targetSeriesShare);
+            }
+
             if (best < 0)
             {
                 break;
             }
 
             var next = remaining[best];
+            if (next.ScoringFeatures?.ContentTasteKey is { } tasteKey)
+            {
+                represented.Add(tasteKey);
+            }
+
             selected.Add(next);
             remaining.RemoveAt(best);
             if (next.TmdbCollectionId > 0)
@@ -59,20 +78,32 @@ internal static class DiscoverySelection
         return selected.OrderByDescending(candidate => candidate.Score).ToList();
     }
 
-    private static int BestCandidate(List<DiscoveryRecommendation> remaining, List<DiscoveryRecommendation> selected, Dictionary<DiscoveryRecommendation, HashSet<string>> genres, Dictionary<int, int> collections)
+    private static int BestCandidate(List<DiscoveryRecommendation> remaining, List<DiscoveryRecommendation> selected, Dictionary<DiscoveryRecommendation, HashSet<string>> genres, Dictionary<int, int> collections, bool coherentOnly = false, HashSet<Guid>? represented = null, double? targetSeriesShare = null)
     {
         var best = -1;
         var bestUtility = double.NegativeInfinity;
+        var selectedSeries = selected.Count(candidate => string.Equals(candidate.MediaType, TmdbLibraryMapper.TvMediaType, StringComparison.OrdinalIgnoreCase));
         for (var i = 0; i < remaining.Count; i++)
         {
             var candidate = remaining[i];
+            if (coherentOnly && !ScoringHelper.HasCoherentContentSupport(candidate.ScoringFeatures))
+            {
+                continue;
+            }
+
+            if (candidate.ScoringFeatures?.ContentTasteKey is { } tasteKey && represented?.Contains(tasteKey) == true)
+            {
+                continue;
+            }
+
             if (candidate.TmdbCollectionId > 0 && collections.GetValueOrDefault(candidate.TmdbCollectionId) >= MaximumPerCollection)
             {
                 continue;
             }
 
             var similarity = selected.Count == 0 ? 0.0 : selected.Max(previous => SimilarityComputer.ComputeJaccardFromSets(genres[candidate], genres[previous]));
-            var utility = (0.8 * candidate.Score) - (0.2 * similarity);
+            var utility = (0.8 * candidate.Score) - (0.2 * similarity)
+                + MediaTypeBalance.Adjustment(string.Equals(candidate.MediaType, TmdbLibraryMapper.TvMediaType, StringComparison.OrdinalIgnoreCase), selected.Count, selectedSeries, targetSeriesShare);
             if (utility > bestUtility)
             {
                 best = i;

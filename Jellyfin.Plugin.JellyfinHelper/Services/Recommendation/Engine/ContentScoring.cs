@@ -33,7 +33,7 @@ internal static class ContentScoring
     internal static long ParallelArrayMismatchCount => Interlocked.Read(ref _parallelArrayMismatchCount);
 
     /// <summary>
-    ///     Returns a normalized collaborative score (0-1) for a candidate item.
+    ///     Returns a bounded collaborative score without amplifying weak absolute neighbour support.
     /// </summary>
     /// <param name="itemId">The candidate item ID.</param>
     /// <param name="coOccurrence">The collaborative co-occurrence map.</param>
@@ -44,12 +44,15 @@ internal static class ContentScoring
         Dictionary<Guid, double> coOccurrence,
         double maxCoOccurrence)
     {
-        if (maxCoOccurrence <= 0 || !coOccurrence.TryGetValue(itemId, out var count))
+        if (maxCoOccurrence <= 0 || !double.IsFinite(maxCoOccurrence)
+            || !coOccurrence.TryGetValue(itemId, out var count) || !double.IsFinite(count))
         {
             return 0;
         }
 
-        return Math.Clamp(count / maxCoOccurrence, 0.0, 1.0);
+        // One unit is the upper bound of a single neighbour's weighted overlap.
+        // Strong aggregate maps retain relative normalization; weak maps keep their support.
+        return Math.Clamp(count / Math.Max(1.0, maxCoOccurrence), 0.0, 1.0);
     }
 
     /// <summary>
@@ -435,13 +438,9 @@ internal static class ContentScoring
         var totalMeaningful = profile.WatchedItems.Count(w => w.HasMeaningfulInteraction()
             && (excludeItemIds is null || !excludeItemIds.Contains(w.ItemId)));
         var familiarity = Math.Clamp((double)matching.Count / Math.Max(totalMeaningful, 1), 0.0, 1.0);
-        var withCompletion = matching.Where(w => w.RuntimeTicks > 0 || w.Played).ToList();
+        var withCompletion = matching.Where(HasMeasuredCompletion).ToList();
         var avgCompletion = withCompletion.Count > 0 ? withCompletion.Average(ComputeCompletionRatio) : 0.5;
-        var abandonCount = withCompletion.Count(w =>
-        {
-            var r = ComputeCompletionRatio(w);
-            return r > 0.0 && r < CandidateFeatures.AbandonedThreshold;
-        });
+        var abandonCount = withCompletion.Count(w => IsRejectedPartial(ComputeCompletionRatio(w), NormalizeUserRating(w.UserRating)));
         var abandonRate = withCompletion.Count > 0 ? (double)abandonCount / withCompletion.Count : 0.0;
 
         // Confidence shrinkage: with few samples in this genre, avgCompletion/abandonRate are noisy
@@ -497,7 +496,7 @@ internal static class ContentScoring
 
             withCompletionCount++;
             completionSum += w.Completion;
-            if (w.Completion > 0.0 && w.Completion < CandidateFeatures.AbandonedThreshold)
+            if (IsRejectedPartial(w.Completion, w.NormalizedRating))
             {
                 abandonCount++;
             }
@@ -542,7 +541,7 @@ internal static class ContentScoring
             var genreSet = w.Genres is { Count: > 0 }
                 ? GenreNormalizer.Set(w.Genres)
                 : null;
-            var countsForCompletion = w.RuntimeTicks > 0 || w.Played;
+            var countsForCompletion = HasMeasuredCompletion(w);
             var completion = countsForCompletion ? ComputeCompletionRatio(w) : 0.0;
             var normalizedRating = NormalizeUserRating(w.UserRating);
             meaningful.Add(new MeaningfulWatch(genreSet, countsForCompletion, completion, normalizedRating));
@@ -550,6 +549,14 @@ internal static class ContentScoring
 
         return new GenreEngagementContext(meaningful, catalogVersion);
     }
+
+    private static bool HasMeasuredCompletion(WatchedItemInfo item)
+        => item.Played || (item.RuntimeTicks > 0 && item.PlaybackPositionTicks > 0);
+
+    // A saved position, even an old one, does not establish dislike or abandonment.
+    // Keep the v6 coordinate but require explicit negative feedback on unfinished material.
+    private static bool IsRejectedPartial(double completion, double? rating)
+        => completion > 0 && completion < CandidateFeatures.AbandonedThreshold && rating is < 0.5;
 
     /// <summary>
     ///     Computes the user's average normalized rating (0-1) across the candidate's genres, drawn from
@@ -755,8 +762,11 @@ internal static class ContentScoring
                 continue;
             }
 
-            var watchedCount = kv.Value.Select(v => v.ItemId).Distinct().Count();
-            var ratio = (double)watchedCount / total;
+            // Starts and favorites are interaction evidence, not completed episodes.
+            // Use actual per-episode completion once, including partial material.
+            var watchedMaterial = kv.Value.Where(row => row.ItemId != Guid.Empty).GroupBy(row => row.ItemId)
+                .Sum(group => group.Max(ComputeCompletionRatio));
+            var ratio = Math.Round(Math.Min(1.0, watchedMaterial / total), 12);
             if (ratio >= 0.3 && ratio <= 0.8)
             {
                 progressing.Add(kv.Key);

@@ -51,6 +51,43 @@ public sealed class ContentAffinityResolverTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void InferredCollectionIdentityRequiresCompleteMembershipButDirectIdentityKeepsItsOwnProvenance(bool complete)
+    {
+        var inferred = new Movie { Id = Guid.NewGuid() };
+        var direct = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["TmdbCollection"] = "999" } };
+        var box = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "123" }, LinkedChildren = [LinkedChild.Create(inferred), LinkedChild.Create(direct)] };
+        var memberships = new Dictionary<Guid, List<Guid>> { [inferred.Id] = [box.Id], [direct.Id] = [box.Id] };
+        Assert.Equal(complete ? 123 : 0, ContentAffinityResolver.ResolveTmdbCollectionId(inferred, [box], memberships, complete));
+        Assert.Equal(999, ContentAffinityResolver.ResolveTmdbCollectionId(direct, [box], memberships, complete));
+    }
+
+    [Fact]
+    public void CanonicalCollectionEvidenceIsNeededForMissingOrAmbiguousMovieIdsOnly()
+    {
+        var missing = new Movie();
+        Assert.True(ContentAffinityResolver.NeedsCollectionEvidence(missing));
+        missing.ProviderIds["TmdbCollection"] = "not-an-id";
+        Assert.True(ContentAffinityResolver.NeedsCollectionEvidence(missing));
+        missing.ProviderIds["TmdbCollection"] = "0";
+        Assert.True(ContentAffinityResolver.NeedsCollectionEvidence(missing));
+        missing.ProviderIds["TmdbCollection"] = "-1";
+        Assert.True(ContentAffinityResolver.NeedsCollectionEvidence(missing));
+        missing.ProviderIds["TmdbCollection"] = "991";
+        Assert.False(ContentAffinityResolver.NeedsCollectionEvidence(missing));
+        missing.ProviderIds["Tmdb"] = "991";
+        Assert.True(ContentAffinityResolver.NeedsCollectionEvidence(missing));
+        Assert.False(ContentAffinityResolver.NeedsCollectionEvidence(new Series { ProviderIds = new() { ["Tmdb"] = "991", ["TmdbCollection"] = "991" } }));
+        var other = new Movie { Id = Guid.NewGuid() };
+        var firstBox = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "991" }, LinkedChildren = [LinkedChild.Create(other)] };
+        var conflict = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "992" }, LinkedChildren = [LinkedChild.Create(other)] };
+        Assert.Equal(991, ContentAffinityResolver.ResolveTmdbCollectionId(other, [firstBox]));
+        Assert.Equal(0, ContentAffinityResolver.ResolveTmdbCollectionId(other, [firstBox, conflict]));
+        Assert.Equal(0, ContentAffinityResolver.ResolveTmdbCollectionId(other, []));
+    }
+
+    [Theory]
     [InlineData(SeriesStatus.Continuing, "Continuing")]
     [InlineData(SeriesStatus.Ended, "Ended")]
     [InlineData(SeriesStatus.Unreleased, "Unreleased")]

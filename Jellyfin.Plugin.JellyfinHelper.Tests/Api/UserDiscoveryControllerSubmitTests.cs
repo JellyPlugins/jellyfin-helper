@@ -1,14 +1,20 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.IO;
+using System.Net;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
+using Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -58,9 +64,9 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         _memoryCache.Dispose();
     }
 
-    private UserDiscoveryController CreateController(Guid? userId = null)
+    private UserDiscoveryController CreateController(Guid? userId = null, IDiscoveryFeedbackStore? feedbackStore = null, ISeerrDiscoveryService? discovery = null)
     {
-        var c = new UserDiscoveryController(_cache, _discoveryMock.Object, _feedbackStoreMock.Object, _configServiceMock.Object, _memoryCache, Moq.Mock.Of<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.ITraktDiscoveryService>(), Moq.Mock.Of<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.IOfficialTraktPluginReader>(), _loggerMock.Object);
+        var c = new UserDiscoveryController(_cache, discovery ?? _discoveryMock.Object, feedbackStore ?? _feedbackStoreMock.Object, _configServiceMock.Object, _memoryCache, Moq.Mock.Of<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.ITraktDiscoveryService>(), Moq.Mock.Of<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.IOfficialTraktPluginReader>(), _loggerMock.Object);
         var claims = new List<Claim>();
         if (userId.HasValue)
         {
@@ -84,6 +90,448 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         var results = new List<ValidationResult>();
         Validator.TryValidateObject(dto, new ValidationContext(dto), results, validateAllProperties: true);
         return results;
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ACardRequestMustRetainItsOriginalEvidenceBeforeAnyUpstreamSubmission(bool unavailable)
+    {
+        var user = Guid.NewGuid();
+        Plugin.Instance!.Configuration.SeerrUrl = "https://seerr.example.test";
+        Plugin.Instance.Configuration.SeerrApiKey = "test-key";
+        _configServiceMock.Setup(configuration => configuration.GetConfiguration()).Returns(new PluginConfiguration { DiscoveryUserAccessEnabled = true, RecommendationsTaskMode = TaskMode.Activate });
+        _discoveryMock.SetupGet(service => service.MaxVisiblePerUser).Returns(10);
+        _discoveryMock.Setup(service => service.FilterConsumedItems(user, It.IsAny<DiscoveryResult>())).Returns((Guid _, DiscoveryResult result) => result);
+        _discoveryMock.Setup(service => service.GetUserRequestPermissionsAsync(user, "movie", "radarr", It.IsAny<CancellationToken>())).ReturnsAsync(new UserRequestPermissionResult { CanRequest = true });
+        _discoveryMock.Setup(service => service.ResolveSeerrUserIdAsync(user, It.IsAny<CancellationToken>())).ReturnsAsync(42);
+        _discoveryMock.Setup(service => service.SubmitRequestAsync(700, "movie", 42, null, null, null, It.IsAny<CancellationToken>())).ReturnsAsync(new SeerrRequestResult(true, "accepted"));
+        var directory = Path.Join(Path.GetTempPath(), "jfh-prepared-controller-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
+            {
+                WriteRecovery = (path, contents) =>
+                {
+                    if (unavailable) throw new IOException("unavailable");
+                    Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+                }
+            };
+
+            Assert.True(await _cache.SaveAsync([new DiscoveryResult { UserId = user, GeneratedAt = DateTime.UtcNow.AddMinutes(-1), Recommendations = [new() { TmdbId = 700, MediaType = "movie", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .2 } }] }], TestContext.Current.CancellationToken));
+            var controller = CreateController(user, store);
+            var loaded = await controller.GetMyDiscoveryResults(TestContext.Current.CancellationToken);
+            var delivery = Assert.IsType<DiscoveryResult>(Assert.IsType<OkObjectResult>(loaded.Result).Value);
+            var request = await controller.SubmitMyRequest(new DiscoveryRequestDto { TmdbId = 700, MediaType = "movie", DeliveryId = delivery.DeliveryId }, TestContext.Current.CancellationToken);
+            var result = Assert.IsType<ObjectResult>(request.Result);
+            Assert.Equal(unavailable ? 503 : 201, result.StatusCode);
+            _discoveryMock.Verify(service => service.SubmitRequestAsync(700, "movie", 42, null, null, null, It.IsAny<CancellationToken>()), unavailable ? Times.Never() : Times.Once());
+            if (!unavailable) Assert.Equal(.2, Assert.Single(store.LoadForUser(user)!.Entries).ScoringFeatures!.GenreSimilarity);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NativeCardSubmissionPersistsTheOriginalAtTheActualPostBoundaryOrRetiresTheProvenUnsentAttempt(bool failMark)
+    {
+        var user = Guid.NewGuid();
+        var directory = Path.Join(Path.GetTempPath(), "opencode", "native-card-controller-" + Guid.NewGuid().ToString("N"));
+        string? originalPath = null;
+        using var handler = new ScriptedHttpHandler();
+        using var ensemble = new EnsembleScoringStrategy();
+        using var registry = new PerUserEnsembleRegistry(ensemble, null, null, new EnsembleBlendBounds(EnsembleScoringStrategy.DefaultAlphaMin, EnsembleScoringStrategy.DefaultAlphaMax, EnsembleScoringStrategy.DefaultGenrePenaltyFloor), Mock.Of<IPluginLogService>());
+        var history = new Mock<IWatchHistoryService>();
+        history.Setup(service => service.GetUserParentalPolicy(user)).Returns((true, (int?)null));
+        var http = new Mock<IHttpClientFactory>();
+        http.Setup(factory => factory.CreateClient(It.IsAny<string>())).Returns(() => new HttpClient(handler, disposeHandler: false));
+        var posts = 0;
+        handler.ResponseOverride = (request, _) =>
+        {
+            Assert.Equal("seerr.example.test", request.RequestUri!.Host);
+            var path = request.RequestUri.AbsolutePath;
+            if (request.Method == HttpMethod.Post)
+            {
+                Assert.Equal("/api/v1/request", path);
+                using var original = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Assert.IsType<string>(originalPath)));
+                Assert.True(original.RootElement.GetProperty("ticket").GetProperty("submissionUncertain").GetBoolean());
+                posts++;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Created) { Content = new StringContent("{}") });
+            }
+
+            var body = path switch
+            {
+                "/api/v1/user" => $$"""{"pageInfo":{"pages":1,"results":1},"results":[{"id":42,"permissions":32,"jellyfinUserId":"{{user:N}}"}]}""",
+                "/api/v1/service/radarr" => "[]",
+                "/api/v1/movie/700" => """{"id":700,"mediaInfo":null}""",
+                _ => throw new InvalidOperationException("Unexpected native request route: " + path)
+            };
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
+        };
+        try
+        {
+            using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
+            {
+                WriteRecovery = (path, contents) =>
+                {
+                    using var document = System.Text.Json.JsonDocument.Parse(contents);
+                    if (failMark && document.RootElement.GetProperty("ticket").GetProperty("submissionUncertain").GetBoolean()) throw new IOException("submission mark unavailable");
+                    Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+                    originalPath = path;
+                }
+            };
+
+            var delivered = await PrepareConcreteCardRequestAsync(user, store);
+            var native = new SeerrDiscoveryService(http.Object, history.Object, Mock.Of<IArrIntegrationService>(), TestMockFactory.CreateLibraryManager().Object, registry, _cache, store,
+                Mock.Of<IPluginLogService>(), TestMockFactory.CreateSecretProtector(), TestMockFactory.CreateVirtualItemDetector(), Mock.Of<ILogger<SeerrDiscoveryService>>());
+            var response = await CreateController(user, store, native).SubmitMyRequest(delivered.Request, TestContext.Current.CancellationToken);
+            Assert.Equal(failMark ? 503 : 201, Assert.IsType<ObjectResult>(response.Result).StatusCode);
+            Assert.Equal(failMark ? 0 : 1, posts);
+            Assert.Empty(store.GetPreparedRequestItems(user, SeerrDiscoveryService.RequestSourceScope(Plugin.Instance!.Configuration)));
+            if (failMark)
+            {
+                Assert.Empty(store.LoadAll());
+                Assert.False(File.Exists(Assert.IsType<string>(originalPath)));
+            }
+            else
+            {
+                Assert.Equal(.2, Assert.Single(Assert.Single(store.LoadAll()).Entries).ScoringFeatures!.GenreSimilarity);
+            }
+
+            _discoveryMock.Verify(service => service.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FailedDurableSubmissionMarkCannotCallSeerrAndADeferredRetirementPreservesTheOriginal(bool retirementUnavailable)
+    {
+        var user = Guid.NewGuid();
+        var directory = Path.Join(Path.GetTempPath(), "jfh-prepared-mark-" + Guid.NewGuid().ToString("N"));
+        var markUnavailable = true;
+        var failRetirement = retirementUnavailable;
+        string? originalPath = null;
+        string? originalContents = null;
+        try
+        {
+            using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
+            {
+                WriteRecovery = (path, contents) =>
+                {
+                    using var document = System.Text.Json.JsonDocument.Parse(contents);
+                    if (document.RootElement.TryGetProperty("ticket", out var ticket))
+                    {
+                        if (markUnavailable && ticket.GetProperty("submissionUncertain").GetBoolean())
+                        {
+                            throw new IOException("durable pre-submission mark unavailable");
+                        }
+
+                        originalPath ??= path;
+                        originalContents ??= contents;
+                    }
+
+                    Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+                },
+                DeleteRecovery = path =>
+                {
+                    if (failRetirement) throw new IOException("unsubmitted intent retirement unavailable");
+                    File.Delete(path);
+                }
+            };
+
+            var prepared = await PrepareConcreteCardRequestAsync(user, store);
+            var response = await prepared.Controller.SubmitMyRequest(prepared.Request, TestContext.Current.CancellationToken);
+
+            Assert.Equal(503, Assert.IsType<ObjectResult>(response.Result).StatusCode);
+            _discoveryMock.Verify(service => service.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+            Assert.Empty(store.GetRequestedItems(user));
+            var path = Assert.IsType<string>(originalPath);
+            var scope = SeerrDiscoveryService.RequestSourceScope(Plugin.Instance!.Configuration);
+            if (retirementUnavailable)
+            {
+                Assert.Equal(originalContents, await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+                Assert.Contains((700, "movie"), store.GetPreparedRequestItems(user, scope));
+            }
+            else
+            {
+                Assert.False(File.Exists(path));
+                Assert.Empty(store.GetPreparedRequestItems(user, scope));
+            }
+
+            markUnavailable = false;
+            failRetirement = false;
+            var limited = await prepared.Controller.SubmitMyRequest(prepared.Request, TestContext.Current.CancellationToken);
+            Assert.Equal(429, Assert.IsType<ObjectResult>(limited.Result).StatusCode);
+            _discoveryMock.Verify(service => service.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+            // Advance only this user's rate-limit evidence; keep the delivered
+            // card and durable original intact for a retry after the real window.
+            _memoryCache.Set(UserDiscoveryController.BuildRateLimitKey(user), DateTime.UtcNow.AddMinutes(-1));
+            var retry = await prepared.Controller.SubmitMyRequest(prepared.Request, TestContext.Current.CancellationToken);
+            Assert.Equal(201, Assert.IsType<ObjectResult>(retry.Result).StatusCode);
+            _discoveryMock.Verify(service => service.SubmitRequestAsync(700, "movie", 42, null, null, null, It.IsAny<CancellationToken>()), Times.Once);
+            Assert.Equal(.2, Assert.Single(Assert.Single(store.LoadAll()).Entries).ScoringFeatures!.GenreSimilarity);
+            Assert.Empty(store.GetPreparedRequestItems(user, scope));
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task BestEffortCompletionReleasesItsLeaseButKeepsTheOriginalWhenRetirementStorageFails()
+    {
+        var user = Guid.NewGuid();
+        var directory = Path.Join(Path.GetTempPath(), "jfh-completion-retirement-" + Guid.NewGuid().ToString("N"));
+        var retirementUnavailable = false;
+        string? originalPath = null;
+        try
+        {
+            using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
+            {
+                PreparedAttemptLimit = 1,
+                WriteRecovery = (path, contents) =>
+                {
+                    using var document = System.Text.Json.JsonDocument.Parse(contents);
+                    if (document.RootElement.TryGetProperty("ticket", out _)) originalPath = path;
+                    Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+                },
+                DeleteRecovery = path =>
+                {
+                    if (retirementUnavailable) throw new IOException("terminal intent retirement unavailable");
+                    File.Delete(path);
+                }
+            };
+
+            var request = await PrepareConcreteCardRequestAsync(user, store);
+            var generated = DateTime.UtcNow.AddMinutes(-5);
+            var scope = SeerrDiscoveryService.RequestSourceScope(Plugin.Instance!.Configuration)!;
+            var original = new DiscoveryRecommendation
+            {
+                TmdbId = 700, MediaType = "movie", Title = "original delivered card", Score = .7,
+                KnownPeople = ["original person"], ScoringFeatures = new CandidateFeatures { GenreSimilarity = .4 }
+            };
+            var prepared = store.PrepareRequestedCard(user, original, generated, scope);
+            store.MarkPreparedSubmission(prepared);
+            var path = Assert.IsType<string>(originalPath);
+            var contents = await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken);
+            retirementUnavailable = true;
+
+            // Exercise the best-effort completion boundary with a real durable
+            // prepared original and a failed filesystem retirement, not a mock store.
+            typeof(UserDiscoveryController).GetMethod("FinishUpstreamAttempt", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .Invoke(request.Controller, [prepared, false, true]);
+
+            using var before = System.Text.Json.JsonDocument.Parse(contents);
+            using var after = System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+            var originalTicket = Assert.IsType<DiscoveryFeedbackRecoveryJournal.Ticket>(System.Text.Json.JsonSerializer.Deserialize<DiscoveryFeedbackRecoveryJournal.Ticket>(before.RootElement.GetProperty("ticket").GetRawText(), Jellyfin.Plugin.JellyfinHelper.Services.JsonDefaults.Options));
+            var retainedTicket = Assert.IsType<DiscoveryFeedbackRecoveryJournal.Ticket>(System.Text.Json.JsonSerializer.Deserialize<DiscoveryFeedbackRecoveryJournal.Ticket>(after.RootElement.GetProperty("ticket").GetRawText(), Jellyfin.Plugin.JellyfinHelper.Services.JsonDefaults.Options));
+            Assert.True(DiscoveryFeedbackRecoveryJournal.SameOriginal(originalTicket, retainedTicket));
+            Assert.Equal(before.RootElement.GetProperty("payload").GetString(), after.RootElement.GetProperty("payload").GetString());
+            Assert.False(retainedTicket.SubmissionUncertain);
+            Assert.True(retainedTicket.LastSubmissionDefinitelyUnaccepted);
+            Assert.Equal(prepared.Attempt, retainedTicket.LastSubmissionAttempt);
+            Assert.Contains((700, "movie"), store.GetPreparedRequestItems(user, scope));
+            Assert.Contains(_loggerMock.Invocations, invocation => invocation.Method.Name == "Log" && invocation.Arguments[0] is LogLevel.Warning && invocation.Arguments[3] is IOException);
+            _discoveryMock.Verify(service => service.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+
+            retirementUnavailable = false;
+            var retry = await request.Controller.SubmitMyRequest(request.Request, TestContext.Current.CancellationToken);
+            Assert.Equal(201, Assert.IsType<ObjectResult>(retry.Result).StatusCode);
+            var recovered = Assert.Single(Assert.Single(store.LoadAll()).Entries);
+            Assert.Equal("original delivered card", recovered.Title);
+            Assert.Equal(.4, recovered.ScoringFeatures!.GenreSimilarity);
+            Assert.Equal(generated, recovered.ShownAtUtc);
+            Assert.Equal(new[] { "original person" }, recovered.KnownPeople);
+            Assert.Empty(store.GetPreparedRequestItems(user, scope));
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private async Task<(UserDiscoveryController Controller, DiscoveryRequestDto Request)> PrepareConcreteCardRequestAsync(Guid user, DiscoveryFeedbackStore store)
+    {
+        Plugin.Instance!.Configuration.SeerrUrl = "https://seerr.example.test";
+        Plugin.Instance.Configuration.SeerrApiKey = "test-key";
+        _configServiceMock.Setup(configuration => configuration.GetConfiguration()).Returns(new PluginConfiguration { DiscoveryUserAccessEnabled = true, RecommendationsTaskMode = TaskMode.Activate });
+        _discoveryMock.SetupGet(service => service.MaxVisiblePerUser).Returns(10);
+        _discoveryMock.Setup(service => service.FilterConsumedItems(user, It.IsAny<DiscoveryResult>())).Returns((Guid _, DiscoveryResult result) => result);
+        _discoveryMock.Setup(service => service.GetUserRequestPermissionsAsync(user, "movie", "radarr", It.IsAny<CancellationToken>())).ReturnsAsync(new UserRequestPermissionResult { CanRequest = true });
+        _discoveryMock.Setup(service => service.ResolveSeerrUserIdAsync(user, It.IsAny<CancellationToken>())).ReturnsAsync(42);
+        _discoveryMock.Setup(service => service.SubmitRequestAsync(700, "movie", 42, null, null, null, It.IsAny<CancellationToken>())).ReturnsAsync(new SeerrRequestResult(true, "accepted"));
+        Assert.True(await _cache.SaveAsync([new DiscoveryResult { UserId = user, GeneratedAt = DateTime.UtcNow.AddMinutes(-1), Recommendations = [new() { TmdbId = 700, MediaType = "movie", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .2 } }] }], TestContext.Current.CancellationToken));
+        var controller = CreateController(user, store);
+        var loaded = await controller.GetMyDiscoveryResults(TestContext.Current.CancellationToken);
+        var delivery = Assert.IsType<DiscoveryResult>(Assert.IsType<OkObjectResult>(loaded.Result).Value);
+        return (controller, new DiscoveryRequestDto { TmdbId = 700, MediaType = "movie", DeliveryId = delivery.DeliveryId });
+    }
+
+    [Theory]
+    [InlineData("rejected", 502)]
+    [InlineData("retire-failure", 502)]
+    [InlineData("confirm-failure", 503)]
+    [InlineData("intent-confirm-failure", 503)]
+    [InlineData("source-changed", 503)]
+    [InlineData("client-cancelled", 201)]
+    public async Task ConcreteCardRequestFailuresKeepTheOriginalContractWithoutAcknowledgingUnconfirmedSuccess(string boundary, int status)
+    {
+        var user = Guid.NewGuid();
+        var directory = Path.Join(Path.GetTempPath(), "jfh-request-boundary-" + Guid.NewGuid().ToString("N"));
+        var retry = new ControlledWaitTimeProvider();
+        var failWrite = boundary == "confirm-failure";
+        var failIntent = false;
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        try
+        {
+            using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
+            {
+                RetryTimeProvider = retry,
+                WriteRecovery = (path, contents) =>
+                {
+                    if (failIntent) throw new IOException("accepted intent transition unavailable");
+                    Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+                },
+                WriteFeedback = (path, contents) =>
+                {
+                    if (failWrite) throw new IOException("feedback temporarily unavailable");
+                    Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+                },
+                DeleteRecovery = path =>
+                {
+                    if (boundary == "retire-failure") throw new IOException("intent retirement unavailable");
+                    File.Delete(path);
+                }
+            };
+
+            var request = await PrepareConcreteCardRequestAsync(user, store);
+            ConfigureConcreteRequestBoundary(user, boundary, cancellation, () => failIntent = true);
+            var response = await request.Controller.SubmitMyRequest(request.Request, cancellation.Token);
+            Assert.Equal(status, Assert.IsType<ObjectResult>(response.Result).StatusCode);
+            _discoveryMock.Verify(service => service.SubmitRequestAsync(700, "movie", 42, null, null, null, It.IsAny<CancellationToken>()), boundary == "source-changed" ? Times.Never() : Times.Once());
+            if (boundary is "confirm-failure" or "intent-confirm-failure")
+            {
+                Assert.Contains((700, "movie"), store.GetPendingRequestedItems(user));
+                Assert.Throws<IOException>(() => store.LoadAll());
+                failWrite = false;
+                failIntent = false;
+                await retry.WaitForDeadlineAsync(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+                retry.ExpireDeadlines();
+                await FeedbackWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+                Assert.Equal(.2, Assert.Single(Assert.Single(store.LoadAll()).Entries).ScoringFeatures!.GenreSimilarity);
+            }
+            else if (boundary == "client-cancelled")
+            {
+                Assert.True(cancellation.IsCancellationRequested);
+                Assert.Equal(.2, Assert.Single(Assert.Single(store.LoadAll()).Entries).ScoringFeatures!.GenreSimilarity);
+            }
+            else
+            {
+                Assert.Empty(store.LoadAll());
+                Assert.Empty(store.GetRequestedItems(user));
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private void ConfigureConcreteRequestBoundary(Guid user, string boundary, CancellationTokenSource cancellation, Action failIntent)
+    {
+        if (boundary is "rejected" or "retire-failure")
+        {
+            _discoveryMock.Setup(service => service.SubmitRequestAsync(700, "movie", 42, null, null, null, It.IsAny<CancellationToken>())).ReturnsAsync(new SeerrRequestResult(false, "not accepted"));
+        }
+        else if (boundary == "source-changed")
+        {
+            _discoveryMock.Setup(service => service.GetUserRequestPermissionsAsync(user, "movie", "radarr", It.IsAny<CancellationToken>())).ReturnsAsync(() =>
+            {
+                Plugin.Instance!.Configuration.SeerrApiKey = "replacement-key";
+                return new UserRequestPermissionResult { CanRequest = true };
+            });
+        }
+        else if (boundary == "client-cancelled")
+        {
+            _discoveryMock.Setup(service => service.SubmitRequestAsync(700, "movie", 42, null, null, null, It.IsAny<CancellationToken>())).Returns(async () =>
+            {
+                await cancellation.CancelAsync();
+                return new SeerrRequestResult(true, "accepted");
+            });
+        }
+        else if (boundary == "intent-confirm-failure")
+        {
+            _discoveryMock.Setup(service => service.SubmitRequestAsync(700, "movie", 42, null, null, null, It.IsAny<CancellationToken>())).Returns(() =>
+            {
+                failIntent();
+                return Task.FromResult(new SeerrRequestResult(true, "accepted"));
+            });
+        }
+    }
+
+    private static Task<bool> FeedbackWriter(DiscoveryFeedbackStore store)
+        => (Task<bool>)typeof(DiscoveryFeedbackStore).GetField("_pendingGeneration", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!;
+
+    [Fact]
+    public async Task AcceptedCardRequestWaitExpiryReportsPendingWhileItsManagedWriterRetainsTheOriginal()
+    {
+        var user = Guid.NewGuid();
+        var directory = Path.Join(Path.GetTempPath(), "jfh-request-wait-" + Guid.NewGuid().ToString("N"));
+        var clock = new ControlledWaitTimeProvider();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        try
+        {
+            using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
+            {
+                WaitTimeProvider = clock,
+                WriteFeedback = (path, contents) =>
+                {
+                    started.TrySetResult();
+                    release.Wait(TestContext.Current.CancellationToken);
+                    Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+                }
+            };
+
+            var submissionStarted = false;
+            try
+            {
+                var prepared = await PrepareConcreteCardRequestAsync(user, store);
+                submissionStarted = true;
+                var request = prepared.Controller.SubmitMyRequest(prepared.Request, TestContext.Current.CancellationToken);
+                await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+                await clock.WaitForDeadlineAsync(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+                clock.ExpireDeadlines();
+                Assert.Equal(503, Assert.IsType<ObjectResult>((await request.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken)).Result).StatusCode);
+                Assert.Contains((700, "movie"), store.GetPendingRequestedItems(user));
+                Assert.Throws<IOException>(() => store.LoadAll());
+                release.Set();
+                await FeedbackWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+                Assert.Equal(.2, Assert.Single(Assert.Single(store.LoadAll()).Entries).ScoringFeatures!.GenreSimilarity);
+            }
+            finally
+            {
+                release.Set();
+                if (submissionStarted && typeof(DiscoveryFeedbackStore).GetField("_pendingGeneration", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store) is Task<bool> writer)
+                {
+                    await writer.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+                }
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]
@@ -499,7 +947,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     }
 
     [Fact]
-    public void DismissItem_FeedbackStoreThrows_StillReturnsSuccess()
+    public void DismissItem_FeedbackStoreThrows_DoesNotAcknowledgePermanentSuccess()
     {
         var userId = Guid.NewGuid();
         _feedbackStoreMock
@@ -508,9 +956,58 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
 
         var dto = new DiscoveryDismissDto { TmdbId = 100, MediaType = "movie" };
         var result = CreateController(userId).DismissItem(dto);
-        var ok = Assert.IsType<OkObjectResult>(result.Result);
-        var body = Assert.IsType<RequestResult>(ok.Value);
-        Assert.True(body.Success);
+        var error = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, error.StatusCode);
+        var body = Assert.IsType<RequestResult>(error.Value);
+        Assert.False(body.Success);
+    }
+
+    [Fact]
+    public void ActualDismissalPersistenceFailureReturnsAnErrorWhilePendingExclusionAndSuccessfulRetryRemainCorrect()
+    {
+        var path = Path.Join(Path.GetTempPath(), "dismissal_ack_" + Guid.NewGuid().ToString("N"));
+        var fail = false;
+        var clock = new ControlledWaitTimeProvider();
+        try
+        {
+            using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), path)
+            {
+                RetryTimeProvider = clock,
+                WriteFeedback = (file, contents) =>
+                {
+                    if (fail) throw new IOException("test persistence unavailable");
+                    Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(file, contents);
+                }
+            };
+
+            var user = Guid.NewGuid();
+            store.RecordGenerated(user, "test viewer", [new DiscoveryRecommendation { TmdbId = 700, MediaType = "tv" }]);
+            fail = true;
+            var controller = CreateController(user, store);
+            var dto = new DiscoveryDismissDto { TmdbId = 700, MediaType = "tv" };
+            var failed = Assert.IsType<ObjectResult>(controller.DismissItem(dto).Result);
+            Assert.Equal(StatusCodes.Status503ServiceUnavailable, failed.StatusCode);
+            Assert.False(Assert.IsType<RequestResult>(failed.Value).Success);
+            Assert.Contains((700, "tv"), store.GetDismissedItems(user));
+            Assert.DoesNotContain((700, "movie"), store.GetDismissedItems(user));
+            Assert.Throws<IOException>(() => store.LoadAll());
+            using (var beforeRecovery = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), path))
+            {
+                Assert.Contains((700, "tv"), beforeRecovery.GetDismissedItems(user));
+                Assert.Null(Assert.Single(beforeRecovery.LoadForUser(user)!.Entries).DismissedAtUtc);
+            }
+
+            fail = false;
+            var succeeded = Assert.IsType<OkObjectResult>(controller.DismissItem(dto).Result);
+            Assert.True(Assert.IsType<RequestResult>(succeeded.Value).Success);
+            using var afterSuccess = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), path);
+            Assert.Contains((700, "tv"), afterSuccess.GetDismissedItems(user));
+            Assert.Empty(afterSuccess.GetDismissedItems(Guid.NewGuid()));
+        }
+        finally
+        {
+            if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
+        }
     }
 
     [Fact]

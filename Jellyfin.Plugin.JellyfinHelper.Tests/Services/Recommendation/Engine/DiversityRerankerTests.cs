@@ -11,6 +11,29 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 /// </summary>
 public class DiversityRerankerTests
 {
+    [Theory]
+    [InlineData(19, true)]
+    [InlineData(20, false)]
+    [InlineData(600, false)]
+    public void LowCurrentScoresCannotBeForcedByInterestLanesOrExplorationUnlessSuitableAlternativesAreInsufficient(int suitableCount, bool offered)
+    {
+        var unchosen = new Movie { Id = Guid.NewGuid(), Genres = ["Drama"] };
+        var candidates = Enumerable.Range(0, suitableCount).Select(index => ((BaseItem)new Movie { Id = Guid.NewGuid(), Genres = ["Drama"] }, .9, string.Empty, string.Empty, (string?)null)).ToList();
+        candidates.Add((unchosen, .01, "unchanged prediction", "unchanged key", null));
+        var supported = new HashSet<Guid> { unchosen.Id };
+        var lanes = new Dictionary<Guid, Guid> { [unchosen.Id] = Guid.NewGuid() };
+        foreach (var seed in Enumerable.Range(1, 3))
+        {
+            var selected = DiversityReranker.ApplyDiversityReranking(candidates, 20, seed, supported, lanes, retainedInterests: supported);
+            Assert.Equal(20, selected.Count);
+            Assert.Equal(offered, selected.Any(item => item.Item.Id == unchosen.Id));
+        }
+
+        Assert.Equal(.01, candidates[^1].Item2);
+        candidates[^1] = (unchosen, .95, "new model assessment", "unchanged key", null);
+        Assert.Contains(DiversityReranker.ApplyDiversityReranking(candidates, 20, 4, supported, lanes), item => item.Item.Id == unchosen.Id);
+    }
+
     [Fact]
     public void ApplyDiversityReranking_EmptyList_ReturnsEmpty()
     {
@@ -32,6 +55,91 @@ public class DiversityRerankerTests
         var result = DiversityReranker.ApplyDiversityReranking(candidates, 0);
 
         Assert.Empty(result);
+    }
+
+    [Fact]
+    public void CoherentInterestOutsideTheGenericMmrWindowCannotBeBuriedByPopularity()
+    {
+        var candidates = BuildLinearlyDecreasingCandidates(353);
+        var target = candidates[147];
+        var supported = new HashSet<Guid> { target.Item.Id };
+        var selected = DiversityReranker.ApplyDiversityReranking(candidates, 20, seed: 42, contentSupported: supported);
+        Assert.Contains(selected, candidate => candidate.Item.Id == target.Item.Id);
+        Assert.Equal(target.Score, selected.Single(candidate => candidate.Item.Id == target.Item.Id).Score);
+    }
+
+    [Fact]
+    public void RepeatedCandidatesForOneTasteCannotSuppressASmallerEvidencedInterest()
+    {
+        var candidates = BuildLinearlyDecreasingCandidates(200);
+        // The minority lane must remain represented when the current model still
+        // finds it suitable, not by forcing an almost-zero prediction into the list.
+        candidates[^1] = (candidates[^1].Item, EngineConstants.MinimumPersonalSelectionScore, candidates[^1].Reason, candidates[^1].ReasonKey, candidates[^1].RelatedItem);
+        var firstInterest = Guid.NewGuid();
+        var secondInterest = Guid.NewGuid();
+        var lanes = candidates.ToDictionary(candidate => candidate.Item.Id, _ => firstInterest);
+        lanes[candidates[^1].Item.Id] = secondInterest;
+        var supported = candidates.Select(candidate => candidate.Item.Id).ToHashSet();
+        var selected = DiversityReranker.ApplyDiversityReranking(candidates, 10, seed: 42, contentSupported: supported, tasteLanes: lanes);
+        Assert.Equal(secondInterest, lanes[selected[1].Item.Id]);
+        Assert.Equal(10, selected.Count);
+        Assert.Equal(candidates[^1].Score, selected[1].Score);
+    }
+
+    [Fact]
+    public void WideSupportedPoolAndExplorationBandCannotDuplicateSelectedOrRemainingTitles()
+    {
+        var candidates = BuildLinearlyDecreasingCandidates(200);
+        var supported = candidates.Skip(100).Take(40).Select(candidate => candidate.Item.Id).ToHashSet();
+        var selected = DiversityReranker.ApplyDiversityReranking(candidates, 20, seed: 42, contentSupported: supported);
+        Assert.Equal(20, selected.Count);
+        Assert.Equal(20, selected.Select(candidate => candidate.Item.Id).Distinct().Count());
+        Assert.All(selected, candidate => Assert.Equal(candidates.Single(original => original.Item.Id == candidate.Item.Id).Score, candidate.Score));
+    }
+
+    [Theory]
+    [InlineData(2, 3, true)]
+    [InlineData(200, 20, true)]
+    [InlineData(200, 20, false)]
+    public void DuplicateSupportedIdsCannotConsumeAnotherMmrOrSmallListSlot(int pool, int count, bool supported)
+    {
+        var candidates = BuildLinearlyDecreasingCandidates(pool);
+        var original = candidates[0];
+        candidates[1].Item.Id = original.Item.Id;
+        var selected = DiversityReranker.ApplyDiversityReranking(candidates, count, seed: 42,
+            contentSupported: supported ? new HashSet<Guid> { original.Item.Id } : null);
+        Assert.Equal(Math.Min(pool - 1, count), selected.Count);
+        Assert.Equal(selected.Count, selected.Select(candidate => candidate.Item.Id).Distinct().Count());
+        Assert.Equal(original.Score, Assert.Single(selected, candidate => candidate.Item.Id == original.Item.Id).Score);
+    }
+
+    [Fact]
+    public void ExplorationNeverReplacesTheBestEntryOfAnIdWithItsLowerRankedDuplicate()
+    {
+        var candidates = BuildLinearlyDecreasingCandidates(40);
+        var best = candidates[1];
+        // Force the sole exploration identity to have both a best MMR-pool row
+        // and lower-ranked wide-band duplicates. No probabilistic seed search can
+        // pass without actually exercising the duplicate's selection.
+        for (var index = 2; index < candidates.Count; index++)
+        {
+            candidates[index].Item.Id = best.Item.Id;
+        }
+
+        var selected = DiversityReranker.ApplyDiversityReranking(candidates, 2, 42, new HashSet<Guid> { candidates[0].Item.Id });
+        Assert.Equal(best.Score, Assert.Single(selected, candidate => candidate.Item.Id == best.Item.Id).Score);
+    }
+
+    [Fact]
+    public void ExplorationDoesNotRepeatASelectedLibraryIdFromEitherLeftoverPool()
+    {
+        var candidates = BuildLinearlyDecreasingCandidates(200);
+        candidates[99].Item.Id = candidates[0].Item.Id;
+        candidates[199].Item.Id = candidates[0].Item.Id;
+        var selected = DiversityReranker.ApplyDiversityReranking(candidates, 20, seed: 42);
+        Assert.Equal(20, selected.Count);
+        Assert.Single(selected, candidate => candidate.Item.Id == candidates[0].Item.Id);
+        Assert.Equal(20, selected.Select(candidate => candidate.Item.Id).Distinct().Count());
     }
 
     [Fact]
@@ -449,8 +557,10 @@ public class DiversityRerankerTests
         Assert.Empty(secondGenres.Intersect(firstGenres));
     }
 
-    [Fact]
-    public void FindBestMmrIndex_EmptySelection_DoesNotAllocatePerCandidate()
+    [Theory]
+    [InlineData(null)]
+    [InlineData(.2)]
+    public void FindBestMmrIndex_EmptySelection_DoesNotAllocatePerCandidate(double? targetSeriesShare)
     {
         var method = typeof(DiversityReranker).GetMethod(
             "FindBestMmrIndex", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
@@ -459,8 +569,8 @@ public class DiversityRerankerTests
         Assert.NotNull(cacheType);
         var cache = Activator.CreateInstance(cacheType!, nonPublic: true);
         var selected = BuildLinearlyDecreasingCandidates(0);
-        var small = new object?[] { BuildLinearlyDecreasingCandidates(20), selected, cache };
-        var large = new object?[] { BuildLinearlyDecreasingCandidates(500), selected, cache };
+        var small = new object?[] { BuildLinearlyDecreasingCandidates(20), selected, cache, targetSeriesShare };
+        var large = new object?[] { BuildLinearlyDecreasingCandidates(500), selected, cache, targetSeriesShare };
 
         // Warm reflection/JIT outside the measurement; only candidate-count-dependent allocation matters.
         for (var i = 0; i < 20; i++)
@@ -516,7 +626,7 @@ public class DiversityRerankerTests
             score -= 0.01;
         }
 
-        var result = DiversityReranker.ApplyDiversityReranking(candidates, 20, seed: 42);
+        var result = DiversityReranker.ApplyDiversityWithMetadata(candidates, 20, new DiversityReranker.SelectionMetadata(Seed: 42, ProducerMetadata: item => Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(item.Studios[0] == "StudioA" ? 1 : 2, item.Studios[0])));
 
         // Only assert on the MMR head (first mmrSlotCount picks) so exploration randomness cannot
         // influence the result. mmrSlotCount = count - explorationSlots.

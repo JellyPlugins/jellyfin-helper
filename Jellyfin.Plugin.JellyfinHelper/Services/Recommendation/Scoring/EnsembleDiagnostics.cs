@@ -30,8 +30,24 @@ public sealed record EnsembleDiagnostics
     /// <summary>Gets the accepted compound-model revision, or zero for a legacy checkpoint.</summary>
     public long ModelRevision { get; init; }
 
-    /// <summary>Gets the operating evidence level, distinguishing bounded provisional serving from verified ranking.</summary>
+    /// <summary>Gets the captured model/cohort's evidence level. Current-derivation approval is separate; historical verification never upgrades missing provenance.</summary>
     public string ValidationLevel { get; init; } = "Legacy";
+
+    /// <summary>Gets the model publication's input derivation. Zero means legacy/unknown, not current compatibility.</summary>
+    public int ModelFeatureDerivationVersion { get; init; }
+
+    /// <summary>Gets the input cohort to which the displayed operative mixture applies.</summary>
+    public int InputFeatureDerivationVersion { get; init; } = CandidateFeatures.CurrentFeatureDerivationVersion;
+
+    /// <summary>Gets the derivation explicitly stamped by current feature builders, independent of the v6 parameter version.</summary>
+    public int CurrentFeatureDerivationVersion { get; init; } = CandidateFeatures.CurrentFeatureDerivationVersion;
+
+    /// <summary>Gets whether the retained model is current or an older/different-derivation prior; no weights are changed.</summary>
+    public string FeatureDerivationStatus => FeatureDerivationContract.Status(ModelFeatureDerivationVersion);
+
+    /// <summary>Gets a value indicating whether this scope has independent ranking approval on the current derivation, not merely a fitted/provisional/global prior.</summary>
+    public bool HasCurrentFeatureDerivationRankingValidation
+        => ModelFeatureDerivationVersion == CandidateFeatures.CurrentFeatureDerivationVersion && ValidationLevel is "Verified" or "ChoiceRanking";
 
     /// <summary>Gets the latest independent admission/retention reason, when this lifecycle has evaluated a challenger.</summary>
     public string? AdmissionReason { get; init; }
@@ -157,4 +173,13 @@ public sealed record EnsembleDiagnostics
 
         return Math.Abs(offset) < 1e-10 ? alpha : Math.Clamp(alpha + offset, minimum, maximum);
     }
+
+    /// <summary>Reports current serving without relabelling, mutating or discarding an older retained model.</summary>
+    /// <returns>The current-input mixture; incompatible retained weights cannot claim participation.</returns>
+    internal EnsembleDiagnostics ForCurrentInputs() => this with
+    {
+        InputFeatureDerivationVersion = CandidateFeatures.CurrentFeatureDerivationVersion,
+        AdmittedAlpha = FeatureDerivationContract.IsCompatible(CandidateFeatures.CurrentFeatureDerivationVersion, ModelFeatureDerivationVersion) ? AdmittedAlpha : 0,
+        AdmittedNeuralBeta = FeatureDerivationContract.IsCompatible(CandidateFeatures.CurrentFeatureDerivationVersion, ModelFeatureDerivationVersion) ? AdmittedNeuralBeta : 0
+    };
 }

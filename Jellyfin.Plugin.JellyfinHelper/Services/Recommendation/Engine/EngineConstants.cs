@@ -96,6 +96,9 @@ internal static class EngineConstants
     /// </summary>
     internal const double MmrLambda = 0.7;
 
+    /// <summary>Current-score suitability floor when enough alternatives exist; never a title exclusion or a run-based cooldown.</summary>
+    internal const double MinimumPersonalSelectionScore = 0.35;
+
     /// <summary>
     ///     Rating prior substituted for a FULLY unrated candidate (no community and no critic rating) in the cold-start scalar ranking formula only.
     /// </summary>
@@ -122,7 +125,7 @@ internal static class EngineConstants
     internal const double AbandonedLabel = 0.0;
 
     /// <summary>
-    ///     Label for previously recommended but unwatched items (exposure bias mitigation - user saw the recommendation but didn't engage).
+    ///     Low fitting target only for qualified relative-choice alternatives, never for mere publication or passive visibility.
     /// </summary>
     internal const double ExposureLabel = 0.05;
 
@@ -180,17 +183,22 @@ internal static class EngineConstants
     internal const int ExplorationSlotDivisor = 10;
 
     /// <summary>
-    ///     Maximum number of random negative samples added per user during training. These are items recommended to OTHER users that this user never interacted with, providing the model with true "irrelevant" examples to sharpen the decision boundary.
+    ///     Maximum captured frontier comparisons per user. These are not observed rejections and require separate chronological qualification before fitting.
     /// </summary>
     internal const int RandomNegativeSamplesPerUser = 5;
 
     // Used by TrainingDataBuilder Phase 4 to assign labels to discovery interactions.
 
     /// <summary>
-    ///     Training label for discovery items that were shown but the user took no action.
-    ///     Identical to <see cref="ExposureLabel"/> - passive non-engagement.
+    ///     Mild below-neutral fitting target after confirmed visibility and a response window, never an observed dislike or independent admission outcome.
     /// </summary>
-    internal const double DiscoveryShownLabel = ExposureLabel;
+    internal const double DiscoveryShownLabel = 0.45;
+
+    /// <summary>Small per-title passive influence, separately capped per user and aged from actual visibility.</summary>
+    internal const double DiscoveryPassiveSampleWeight = 0.025;
+
+    /// <summary>Maximum distinct passive samples per user and fit, preventing many ignored cards from overwhelming actual choices.</summary>
+    internal const int DiscoveryMaximumPassiveSamplesPerUser = 8;
 
     /// <summary>
     ///     Training label for discovery items that the user explicitly dismissed.

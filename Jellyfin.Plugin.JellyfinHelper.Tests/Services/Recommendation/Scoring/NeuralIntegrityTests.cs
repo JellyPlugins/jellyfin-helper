@@ -288,9 +288,13 @@ public sealed class NeuralIntegrityTests
         maximum.GenreUnderexposure = 0;
         maximum.GenreAffinityGap = 0;
         maximum.AudienceMismatch = 0;
+        maximum.ContentFamilyMismatch = 0;
         Assert.Equal(1, HeuristicScoringStrategy.ScoreRaw(maximum), 12);
         var heuristic = new HeuristicScoringStrategy();
         Assert.Equal(1, heuristic.Score(maximum), 12);
+        maximum.ContentFamilyMismatch = .5;
+        Assert.Equal(.5, heuristic.Score(maximum), 12);
+        maximum.ContentFamilyMismatch = 0;
         maximum.IsAbandoned = 1;
         maximum.GenreUnderexposure = 1;
         maximum.GenreAffinityGap = 1;

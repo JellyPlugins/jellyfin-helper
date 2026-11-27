@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 
 /// <summary>
@@ -22,4 +24,10 @@ public class ArrMovie
 
     /// <summary>Gets or sets the file path.</summary>
     public string Path { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets optional provider genres; null means unavailable.</summary>
+    public IReadOnlyList<string>? Genres { get; set; }
+
+    /// <summary>Gets or sets the provider overview.</summary>
+    public string? Overview { get; set; }
 }

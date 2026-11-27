@@ -541,8 +541,9 @@ public sealed partial class NeuralScoringStrategy : IScoringStrategy, ITrainable
     }
 
     /// <summary>Captures resource-free immutable inference parameters, independent of later fitting or disposal.</summary>
+    /// <param name="featureDerivationVersion">The proven fitting cohort; omitted provenance remains legacy/unknown.</param>
     /// <returns>A pinned predictor, or null for a disposed source.</returns>
-    internal PredictionSnapshot? CapturePredictionSnapshot()
+    internal PredictionSnapshot? CapturePredictionSnapshot(int featureDerivationVersion = 0)
     {
         if (_disposed)
         {
@@ -560,24 +561,26 @@ public sealed partial class NeuralScoringStrategy : IScoringStrategy, ITrainable
 
         try
         {
-            return new PredictionSnapshot(new NeuralWeightsData
-            {
-                WeightsIH = _weightsIH,
-                BiasH1 = _biasH1,
-                WeightsH1H2 = _weightsH1H2,
-                BiasH2 = _biasH2,
-                WeightsH2H3 = _weightsH2H3,
-                BiasH3 = _biasH3,
-                WeightsH3H4 = _weightsH3H4,
-                BiasH4 = _biasH4,
-                WeightsH4O = _weightsH4O,
-                BiasOutput = _biasOutput,
-                FeatureMeans = _featureMeans,
-                FeatureStdDevs = _featureStdDevs,
-                ImputationMeans = _imputationMeans,
-                TrainingGeneration = _trainingGeneration,
-                Version = CurrentWeightsVersion
-            });
+            return new PredictionSnapshot(
+                new NeuralWeightsData
+                {
+                    WeightsIH = _weightsIH,
+                    BiasH1 = _biasH1,
+                    WeightsH1H2 = _weightsH1H2,
+                    BiasH2 = _biasH2,
+                    WeightsH2H3 = _weightsH2H3,
+                    BiasH3 = _biasH3,
+                    WeightsH3H4 = _weightsH3H4,
+                    BiasH4 = _biasH4,
+                    WeightsH4O = _weightsH4O,
+                    BiasOutput = _biasOutput,
+                    FeatureMeans = _featureMeans,
+                    FeatureStdDevs = _featureStdDevs,
+                    ImputationMeans = _imputationMeans,
+                    TrainingGeneration = _trainingGeneration,
+                    Version = CurrentWeightsVersion
+                },
+                featureDerivationVersion);
         }
         finally
         {
@@ -2402,10 +2405,11 @@ public sealed partial class NeuralScoringStrategy : IScoringStrategy, ITrainable
     {
         private readonly NeuralWeightsData _data;
 
-        internal PredictionSnapshot(NeuralWeightsData capturedData)
+        internal PredictionSnapshot(NeuralWeightsData capturedData, int featureDerivationVersion = 0)
         {
             ArgumentNullException.ThrowIfNull(capturedData);
             _data = CloneParameters(capturedData);
+            FeatureDerivationVersion = featureDerivationVersion;
         }
 
         /// <inheritdoc />
@@ -2420,6 +2424,9 @@ public sealed partial class NeuralScoringStrategy : IScoringStrategy, ITrainable
         internal static int InputCount => CandidateFeatures.FeatureCount;
 
         internal int Version => _data.Version;
+
+        /// <summary>Gets immutable component provenance outside the unchanged v6 parameter schema.</summary>
+        internal int FeatureDerivationVersion { get; }
 
         internal double[]? ImputationMeans => CopyOptional(_data.ImputationMeans);
 

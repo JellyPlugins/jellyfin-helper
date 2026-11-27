@@ -13,11 +13,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 internal static class PreferenceBuilder
 {
     /// <summary>
-    ///     Upper cap for the raw PlayCount fed into the log1p transform. Guards against pathological metadata (e.g.
-    /// </summary>
-    private const int PlayCountMaxForLog1p = 100;
-
-    /// <summary>
     ///     Lower bound of the progression multiplier: even an abandoned series must still contribute a fraction of its signal so users with mostly-abandoned watch history don't end up with an empty preference vector.
     /// </summary>
     private const double ProgressionFloor = 0.3;
@@ -31,11 +26,6 @@ internal static class PreferenceBuilder
     ///     Linear span from floor to ceiling, i.e. how much the raw ratio moves the multiplier.
     /// </summary>
     private const double ProgressionSpan = ProgressionCeiling - ProgressionFloor;
-
-    /// <summary>
-    ///     Target maximum contribution of the PlayCount log1p boost, chosen so heavy re-watchers produce a meaningful signal not drowned out by the favorite additive (FavoriteGenreBoostFactor = 3.0), while staying sub-favorite so an explicit favorite click always.
-    /// </summary>
-    private const double PlayCountLog1pCeiling = 2.0;
 
     /// <summary>
     ///     Minimum distinct watched titles in one franchise before the loyalty floor engages. A single title is an
@@ -59,12 +49,7 @@ internal static class PreferenceBuilder
     private static readonly double GenreDecayConstant = Math.Log(2.0) / EngineConstants.GenreDecayHalfLifeDays;
 
     /// <summary>
-    ///     Scale factor for the log1p PlayCount contribution.
-    /// </summary>
-    private static readonly double PlayCountLog1pScale = PlayCountLog1pCeiling / Math.Log(1.0 + PlayCountMaxForLog1p);
-
-    /// <summary>
-    ///     Builds a normalized genre preference vector from watch history. Each genre is weighted by recency (180-day half-life exponential decay), play count (log1p boost), and favorites (additive boost).
+    ///     Builds a normalized genre preference vector from watch history, weighted by recency (180-day half-life exponential decay), series progression and explicit favorites.
     /// </summary>
     /// <param name="profile">The user's watch profile.</param>
     /// <param name="seriesEpisodeCounts">
@@ -133,7 +118,7 @@ internal static class PreferenceBuilder
     {
         foreach (var item in profile.WatchedItems)
         {
-            // Eligibility must include PlayCount > 0 so the SAME rows contributing to watchedEpisodesPerSeries also contribute their genres here.
+            // Interaction presence is distinct from completion and repeat-watch strength.
             if (!IsEligibleForPreferenceWeighting(item))
             {
                 continue;
@@ -216,19 +201,17 @@ internal static class PreferenceBuilder
             temporalWeight = Math.Exp(-GenreDecayConstant * 365.0);
         }
 
-        // PlayCount boost: re-watched items signal stronger preference.
-        var clampedPlayCount = Math.Clamp(item.PlayCount, 0, PlayCountMaxForLog1p);
-        var playCountBoost = Math.Log(1.0 + clampedPlayCount) * PlayCountLog1pScale;
-
-        // Progression multiplier: for episode rows, dampen or amplify the (temporal+playCount) signal by how much of the series the user consumed.
+        // PlayCount may count starts/resumes, not completed rewatches. Its magnitude is
+        // deliberately excluded from taste weight; it remains an interaction-presence hint.
+        // For episodes, progression reflects distinct actually completed material.
         var progressionMultiplier = ComputeProgressionMultiplier(
             item,
             seriesEpisodeCounts,
             watchedEpisodesPerSeries);
-        var weight = temporalWeight * (1.0 + playCountBoost) * progressionMultiplier;
+        var weight = temporalWeight * progressionMultiplier;
 
         // Favorite boost - additive, never touched by the progression multiplier so an
-        // explicit favorite click always outweighs a mediocre re-watch pattern.
+        // explicit favorite remains stronger than an ambiguous playback-start counter.
         if (item.IsFavorite)
         {
             weight += EngineConstants.FavoriteGenreBoostFactor;
@@ -395,14 +378,13 @@ internal static class PreferenceBuilder
     /// </summary>
     /// <param name="userProfile">The user's watch profile.</param>
     /// <param name="candidateLookup">Pre-built candidate lookup by item ID (shared across calls for performance).</param>
-    /// <returns>A HashSet of preferred studio names (case-insensitive).</returns>
+    /// <param name="producerMetadata">Current provider-scoped producer observations; unqualified item labels are not producers.</param>
+    /// <returns>A set of qualified producer identities.</returns>
     internal static HashSet<string> BuildStudioPreferenceSet(
         UserWatchProfile userProfile,
-        Dictionary<Guid, BaseItem> candidateLookup)
-        => BuildMetadataPreferenceSet(
-            userProfile,
-            id => candidateLookup.TryGetValue(id, out var item) ? item.Studios ?? [] : null,
-            row => (row.Studios, row.OwnStudios, row.SeriesStudios));
+        Dictionary<Guid, BaseItem> candidateLookup,
+        IReadOnlyDictionary<Guid, TitleMetadataSnapshot?>? producerMetadata = null)
+        => ProducerEvidence.Preferences(userProfile, producerMetadata, completeCurrentScope: producerMetadata is not null);
 
     /// <summary>
     ///     Builds a set of tags the user prefers, derived from their watched and favorited items.
@@ -477,6 +459,18 @@ internal static class PreferenceBuilder
                 continue;
             }
 
+            var captured = CreditPreferenceProfile.Resolve(w);
+            if (captured is not null && (captured.Cast is not null || captured.Crew is not null))
+            {
+                people.UnionWith(captured.People().Select(person => person.Name));
+                continue;
+            }
+
+            if (userProfile.CreditMetadataCutoffUtc.HasValue)
+            {
+                continue;
+            }
+
             // Direct item match (movies, episodes)
             if (peopleLookup.TryGetValue(w.ItemId, out var itemPeople))
             {
@@ -533,7 +527,7 @@ internal static class PreferenceBuilder
             }
 
             // Merge people from the item itself AND its parent series (episodes -> series). De-duplicate per watched row so the same person on the same item is not double-counted just because both item-level and series-level lookups return them.
-            var perRowPeople = BuildPerRowPeople(w, peopleLookup);
+            var perRowPeople = ResolvePreferencePeople(w, userProfile.CreditMetadataCutoffUtc, peopleLookup);
 
             if (perRowPeople is null || perRowPeople.Count == 0)
             {
@@ -559,9 +553,22 @@ internal static class PreferenceBuilder
     /// <summary>
     ///     Merges the de-duplicated person names for a single watched row from both the item-level and parent-series people lookups.
     /// </summary>
-    /// <param name="w">The watched item row.</param>
+    /// <param name="row">The watched item row.</param>
+    /// <param name="cutoff">Historical acquisition boundary, or null for current evidence.</param>
     /// <param name="peopleLookup">Item id -> person name set lookup.</param>
     /// <returns>The de-duplicated person names for the row, or <c>null</c> when none apply.</returns>
+    private static HashSet<string>? ResolvePreferencePeople(WatchedItemInfo row, DateTime? cutoff, Dictionary<Guid, HashSet<string>> peopleLookup)
+    {
+        var captured = CreditPreferenceProfile.Resolve(row);
+        if (captured is not null && (captured.Cast is not null || captured.Crew is not null))
+        {
+            return new HashSet<string>(captured.People().Select(person => person.Name), StringComparer.OrdinalIgnoreCase);
+        }
+
+        return cutoff.HasValue ? null : BuildPerRowPeople(row, peopleLookup);
+    }
+
+    /// <summary>Merges de-duplicated current item and parent person names.</summary>
     private static HashSet<string>? BuildPerRowPeople(
         WatchedItemInfo w,
         Dictionary<Guid, HashSet<string>> peopleLookup)
@@ -594,8 +601,10 @@ internal static class PreferenceBuilder
     /// </summary>
     /// <param name="profile">The user's watch profile.</param>
     /// <returns>A case-insensitive franchise -> normalized-weight map (empty when no signal).</returns>
-    internal static FranchisePreferenceVector BuildFranchisePreferenceVector(UserWatchProfile profile)
+    /// <param name="referenceTimeUtc">One prediction-time decay clock, or current UTC for direct live callers.</param>
+    internal static FranchisePreferenceVector BuildFranchisePreferenceVector(UserWatchProfile profile, DateTime? referenceTimeUtc = null)
     {
+        var reference = DateTimeNormalization.ToUtc(referenceTimeUtc ?? DateTime.UtcNow);
         var vector = new FranchisePreferenceVector();
         if (profile.WatchedItems.Count == 0)
         {
@@ -631,7 +640,7 @@ internal static class PreferenceBuilder
             }
 
             var key = FranchiseIdentityKey(item, vector);
-            identities[key] = identities.GetValueOrDefault(key) + ComputePreferenceRowWeight(item);
+            identities[key] = identities.GetValueOrDefault(key) + ComputePreferenceRowWeight(item, reference);
             if (!IsEpisodeCompletedForProgression(item))
             {
                 continue;
@@ -724,29 +733,33 @@ internal static class PreferenceBuilder
     ///     Builds a max-normalized production-country preference map (country -> weight in [0,1]) from the user's watched/favorited items, using the same weighting as BuildFranchisePreferenceVector.
     /// </summary>
     /// <param name="profile">The user's watch profile.</param>
-    /// <returns>A case-insensitive country -> normalized-weight map (empty when no signal).</returns>
-    internal static Dictionary<string, double> BuildProductionCountryPreferenceVector(UserWatchProfile profile)
+    /// <param name="referenceTimeUtc">One prediction-time decay clock.</param>
+    /// <param name="countryRows">Optional already-cutoff/scoped rows; null uses the current profile.</param>
+    /// <returns>A canonical country-code -> normalized-weight map (empty when no recognized signal).</returns>
+    internal static Dictionary<string, double> BuildProductionCountryPreferenceVector(UserWatchProfile profile, DateTime? referenceTimeUtc = null, IEnumerable<WatchedItemInfo>? countryRows = null)
     {
+        var reference = DateTimeNormalization.ToUtc(referenceTimeUtc ?? DateTime.UtcNow);
         var vector = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-        if (profile.WatchedItems.Count == 0)
+        var rows = (countryRows ?? profile.WatchedItems).Where(row => IsEligibleForPreferenceWeighting(row)
+            && profile.AccessibleItemIds?.Contains(row.ItemId) != false
+            && profile.AccessibleItemIds?.Contains(CollectionMembershipResolver.EngagedTitle(row).ItemId) != false).ToArray();
+        var titles = CollectionMembershipResolver.EngagedTitles(rows).ToDictionary(title => title.ItemId, title => title.Key);
+        var distinct = new Dictionary<(string Title, string Country), double>();
+        foreach (var item in rows)
         {
-            return vector;
+            var countries = CountryIdentity.Set(item.ProductionCountries);
+            var weight = ComputePreferenceRowWeight(item, reference);
+            var title = titles[CollectionMembershipResolver.EngagedTitle(item).ItemId];
+            foreach (var country in countries)
+            {
+                var key = (title, country);
+                distinct[key] = Math.Max(distinct.GetValueOrDefault(key), weight);
+            }
         }
 
-        foreach (var item in profile.WatchedItems)
+        foreach (var (key, weight) in distinct)
         {
-            if (!IsEligibleForPreferenceWeighting(item)
-                || item.ProductionCountries is not { Count: > 0 })
-            {
-                continue;
-            }
-
-            var weight = ComputePreferenceRowWeight(item);
-            foreach (var country in item.ProductionCountries.Where(static c => !string.IsNullOrWhiteSpace(c)))
-            {
-                vector.TryGetValue(country, out var current);
-                vector[country] = current + weight;
-            }
+            vector[key.Country] = vector.GetValueOrDefault(key.Country) + weight;
         }
 
         NormalizeByMax(vector);
@@ -784,8 +797,10 @@ internal static class PreferenceBuilder
     /// </summary>
     /// <param name="profile">The user's watch profile.</param>
     /// <returns>A case-insensitive writer -> weight map (empty when no signal).</returns>
-    internal static Dictionary<string, double> BuildWriterPreferenceWeights(UserWatchProfile profile)
+    /// <param name="referenceTimeUtc">The captured prediction clock, never a later fitting clock.</param>
+    internal static Dictionary<string, double> BuildWriterPreferenceWeights(UserWatchProfile profile, DateTime? referenceTimeUtc = null)
     {
+        var reference = DateTimeNormalization.ToUtc(referenceTimeUtc ?? DateTime.UtcNow);
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var item in profile.WatchedItems)
@@ -796,7 +811,7 @@ internal static class PreferenceBuilder
                 continue;
             }
 
-            var weight = ComputePreferenceRowWeight(item);
+            var weight = ComputePreferenceRowWeight(item, reference);
             var seenThisRow = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var name in item.WriterNames.Where(static n => !string.IsNullOrWhiteSpace(n)))
             {
@@ -814,16 +829,17 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Computes the per-row preference weight shared by the franchise/country/writer builders, using the SAME temporal-decay + play-count-log1p + favorite-additive composition as BuildGenrePreferenceVector (without series-progression, which needs a series.
+    ///     Computes the per-row preference weight shared by franchise/country/writer builders using the same temporal decay and explicit-favorite composition as genres, without series progression.
     /// </summary>
     /// <param name="item">The watched item row.</param>
+    /// <param name="referenceTimeUtc">One clock captured for the complete preference map.</param>
     /// <returns>A non-negative preference weight.</returns>
-    private static double ComputePreferenceRowWeight(WatchedItemInfo item)
+    private static double ComputePreferenceRowWeight(WatchedItemInfo item, DateTime referenceTimeUtc)
     {
         double temporalWeight;
         if (item.LastPlayedDate.HasValue)
         {
-            var ageDays = Math.Max(0.0, (DateTime.UtcNow - item.LastPlayedDate.Value).TotalDays);
+            var ageDays = Math.Max(0.0, (referenceTimeUtc - DateTimeNormalization.ToUtc(item.LastPlayedDate.Value)).TotalDays);
             temporalWeight = Math.Exp(-GenreDecayConstant * ageDays);
         }
         else
@@ -831,10 +847,7 @@ internal static class PreferenceBuilder
             temporalWeight = item.IsFavorite ? 1.0 : Math.Exp(-GenreDecayConstant * 365.0);
         }
 
-        var clampedPlayCount = Math.Clamp(item.PlayCount, 0, PlayCountMaxForLog1p);
-        var playCountBoost = Math.Log(1.0 + clampedPlayCount) * PlayCountLog1pScale;
-
-        var weight = temporalWeight * (1.0 + playCountBoost);
+        var weight = temporalWeight;
         if (item.IsFavorite)
         {
             weight += EngineConstants.FavoriteGenreBoostFactor;
@@ -842,6 +855,12 @@ internal static class PreferenceBuilder
 
         return weight;
     }
+
+    /// <summary>Shares the existing writer row composition with typed credits.</summary>
+    /// <param name="item">One eligible detached credit-bearing row.</param>
+    /// <param name="referenceTimeUtc">The original prediction-time decay clock.</param>
+    /// <returns>The existing weight, never PlayCount magnitude.</returns>
+    internal static double ComputeCreditRowWeight(WatchedItemInfo item, DateTime referenceTimeUtc) => ComputePreferenceRowWeight(item, referenceTimeUtc);
 
     /// <summary>
     ///     Max-normalizes a weight map in place so its largest value becomes 1.0, matching the normalization tail of BuildGenrePreferenceVector.
@@ -1028,7 +1047,7 @@ internal static class PreferenceBuilder
     /// <returns>True when the row represents an actually-completed episode.</returns>
     private static bool IsEpisodeCompletedForProgression(WatchedItemInfo row)
     {
-        return row.Played || row.PlayCount > 0;
+        return row.Played;
     }
 
     /// <summary>
@@ -1038,7 +1057,8 @@ internal static class PreferenceBuilder
     /// <returns>True when the row is eligible for genre / people preference weighting.</returns>
     internal static bool IsEligibleForPreferenceWeighting(WatchedItemInfo row)
     {
-        return row.IsFavorite || IsEpisodeCompletedForProgression(row);
+        return row.IsFavorite || row.Played || row.PlayCount > 0 || (row.PlaybackPositionTicks > 0 && row.RuntimeTicks > 0)
+            || (row.UserRating is > 5 && double.IsFinite(row.UserRating.Value));
     }
 
     /// <summary>
@@ -1057,7 +1077,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Pre-aggregates the number of completed episodes per series for the user, using the strict IsEpisodeCompletedForProgression predicate (Played or PlayCount &gt; 0).
+    ///     Pre-aggregates distinct completed episodes per series using Jellyfin's Played marker, never the number of starts/resumes.
     /// </summary>
     /// <param name="profile">The user watch profile whose rows we aggregate.</param>
     /// <param name="seriesEpisodeCounts">Optional caller-supplied totals; <c>null</c> disables aggregation.</param>
@@ -1075,15 +1095,16 @@ internal static class PreferenceBuilder
         }
 
         var watched = new Dictionary<Guid, int>();
+        var counted = new HashSet<Guid>();
         foreach (var row in profile.WatchedItems)
         {
-            if (row.SeriesId is not { } sid || !IsEpisodeCompletedForProgression(row))
+            if (row.SeriesId is not { } sid || !IsEpisodeCompletedForProgression(row) || row.ItemId == Guid.Empty)
             {
                 continue;
             }
 
             // Skip rows for series no longer in the library (phantom data). The skip must happen BEFORE bumping the counter; ComputeProgressionMultiplier's Math.Min(1.0, rawRatio) already clamps overshoot for still-existing series, so no per-row cap is needed here.
-            if (!seriesEpisodeCounts.ContainsKey(sid))
+            if (!seriesEpisodeCounts.ContainsKey(sid) || !counted.Add(row.ItemId))
             {
                 continue;
             }
@@ -1126,20 +1147,22 @@ internal static class PreferenceBuilder
             return 1.0;
         }
 
-        if (!watchedEpisodesPerSeries.TryGetValue(sid, out var playedEps) || playedEps <= 0)
-        {
-            return 1.0;
-        }
+        // Available aggregation and a known positive total make an absent count zero,
+        // not unknown. Completing the first episode must increase, never reduce, its weight.
+        var playedEps = watchedEpisodesPerSeries.GetValueOrDefault(sid);
 
         // Ratio guarded against pathological metadata where playedEps > totalEps.
         var rawRatio = Math.Min(1.0, (double)playedEps / totalEps);
 
         // Map ratio in [0,1] to multiplier in [ProgressionFloor, ProgressionCeiling].
         // rawRatio=0 -> ProgressionFloor (0.3), rawRatio=0.5 -> 0.9, rawRatio=1 -> 1.5.
-        return Math.Clamp(
+        var multiplier = Math.Clamp(
             ProgressionFloor + (rawRatio * ProgressionSpan),
             ProgressionFloor,
             ProgressionCeiling);
+        // Completion cannot withdraw an explicit favorite's neutral floor.
+        // Actual completed-series progress can still lift it above that floor.
+        return item.IsFavorite ? Math.Max(1.0, multiplier) : multiplier;
     }
 
     /// <summary>Franchise weights with exact-name identity evidence for safe mixed legacy/current histories.</summary>

@@ -1,14 +1,18 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using Jellyfin.Data;
 using Jellyfin.Data.Enums;
+using Jellyfin.Data.Events;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
+using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -22,7 +26,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 /// <summary>
 ///     Collects watch history and user profiles from Jellyfin's user data manager.
 /// </summary>
-public sealed class WatchHistoryService : IWatchHistoryService
+public sealed class WatchHistoryService : IWatchHistoryService, IDisposable
 {
     /// <summary>The plugin-log category used for all watch-history log entries.</summary>
     private const string LogCategory = "WatchHistory";
@@ -34,6 +38,11 @@ public sealed class WatchHistoryService : IWatchHistoryService
     private readonly IUserDataManager _userDataManager;
     private readonly IUserManager _userManager;
     private readonly ILinkedChildrenService? _linkedChildren;
+    private readonly ConcurrentDictionary<Guid, MediaTargetSnapshot> _mediaTargets = new();
+    private long _mediaTargetEpoch;
+    private long _policyEpoch;
+    private long _libraryEpoch;
+    private bool _disposed;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="WatchHistoryService" /> class.
@@ -61,18 +70,40 @@ public sealed class WatchHistoryService : IWatchHistoryService
         _pluginLog = pluginLog;
         _logger = logger;
         _linkedChildren = linkedChildren;
+        _userDataManager.UserDataSaved += OnUserDataSaved;
+        _userManager.OnUserUpdated += OnUserUpdated;
+        _libraryManager.ItemAdded += OnLibraryChanged;
+        _libraryManager.ItemUpdated += OnLibraryChanged;
+        _libraryManager.ItemRemoved += OnLibraryChanged;
     }
+
+    /// <summary>Gets the optional, init-only network-free metadata source configured by the registration factory.</summary>
+    internal TitleMetadataCache? TitleMetadataCache { get; init; }
+
+    /// <summary>Gets the current user-policy handoff version without a user or library lookup.</summary>
+    internal long PolicyEpoch => Volatile.Read(ref _policyEpoch);
+
+    /// <summary>Gets the physical-library handoff version without an additional inventory query.</summary>
+    internal long LibraryEpoch => Volatile.Read(ref _libraryEpoch);
+
+    /// <summary>Gets the shared detector so virtual stubs cannot supply watch-profile or progression evidence.</summary>
+    internal VirtualItemDetector? VirtualItems { get; init; }
+
+    /// <summary>Gets or initializes a value indicating whether the registration factory enables authoritative Jellyfin access queries.</summary>
+    internal bool UseUserAccessQueries { get; init; }
 
     /// <inheritdoc />
     public UserWatchProfile? GetUserWatchProfile(Guid userId)
     {
+        var epoch = Volatile.Read(ref _mediaTargetEpoch);
+        var excluded = _configService.GetConfiguration().ExcludedLibraries;
         var user = _userManager.GetUserById(userId);
         if (user is null || IsDisabled(user))
         {
             return null;
         }
 
-        return BuildProfile(user);
+        return BuildProfile(user, librarySnapshot: new(excluded, epoch));
     }
 
     /// <inheritdoc />
@@ -83,9 +114,72 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <inheritdoc />
+    public IReadOnlySet<Guid>? GetCurrentAccessibleItemIds(Guid userId)
+    {
+        var user = _userManager.GetUserById(userId);
+        return user is null || IsDisabled(user) ? null : LibraryUserAccess.GetAllowedIds(_libraryManager, user);
+    }
+
+    /// <inheritdoc />
+    public double? GetCurrentMediaTarget(Guid userId)
+    {
+        var epoch = Volatile.Read(ref _mediaTargetEpoch);
+        if (_disposed || !_mediaTargets.TryGetValue(userId, out var snapshot) || snapshot.Epoch != epoch || snapshot.Day != DateOnly.FromDateTime(DateTime.UtcNow))
+        {
+            return null;
+        }
+
+        var policy = GetUserParentalPolicy(userId);
+        return policy.Available && policy.MaximumRating == snapshot.MaximumRating
+            && _configService.GetConfiguration().ExcludedLibraries == snapshot.ExcludedLibraries
+            && Volatile.Read(ref _mediaTargetEpoch) == epoch
+                ? snapshot.Share
+                : null;
+    }
+
+    private void OnUserDataSaved(object? sender, UserDataSaveEventArgs args) => InvalidateMediaTargets();
+
+    private void OnUserUpdated(object? sender, GenericEventArgs<Jellyfin.Database.Implementations.Entities.User> args)
+    {
+        Interlocked.Increment(ref _policyEpoch);
+        InvalidateMediaTargets();
+    }
+
+    private void OnLibraryChanged(object? sender, ItemChangeEventArgs args)
+    {
+        if (args.Item is not MediaBrowser.Controller.Playlists.Playlist && args.Item is Movie or Episode or Series or Folder)
+        {
+            Interlocked.Increment(ref _libraryEpoch);
+            InvalidateMediaTargets();
+        }
+    }
+
+    private void InvalidateMediaTargets()
+    {
+        Interlocked.Increment(ref _mediaTargetEpoch);
+        _mediaTargets.Clear();
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        _disposed = true;
+        Interlocked.Increment(ref _policyEpoch);
+        Interlocked.Increment(ref _libraryEpoch);
+        _userDataManager.UserDataSaved -= OnUserDataSaved;
+        _userManager.OnUserUpdated -= OnUserUpdated;
+        _libraryManager.ItemAdded -= OnLibraryChanged;
+        _libraryManager.ItemUpdated -= OnLibraryChanged;
+        _libraryManager.ItemRemoved -= OnLibraryChanged;
+        InvalidateMediaTargets();
+    }
+
+    /// <inheritdoc />
     public Collection<UserWatchProfile> GetAllUserWatchProfiles()
     {
-        var users = _userManager.GetUsers()?.Where(static u => !IsDisabled(u)).ToList() ?? [];
+        var mediaEpochAtLoad = Volatile.Read(ref _mediaTargetEpoch);
+        var roster = _userManager.GetUsers() ?? throw new InvalidOperationException("The live user roster is unavailable; empty recommendation history cannot be inferred.");
+        var users = roster.Where(static user => !IsDisabled(user)).ToList();
 
         _pluginLog.LogInfo(
             LogCategory,
@@ -95,7 +189,8 @@ public sealed class WatchHistoryService : IWatchHistoryService
         // Load library items once for all users (performance: avoids redundant DB queries).
         // The library scope is resolved a single time here and threaded into each loader so the
         // excluded-library filter never re-reads virtual folders per query.
-        var scope = ResolveLibraryScope();
+        var excludedAtLoad = _configService.GetConfiguration().ExcludedLibraries;
+        var scope = ResolveLibraryScope(excludedAtLoad);
         var allItems = LoadAllVideoItems(scope);
         var allSeries = LoadAllSeriesItems(scope);
 
@@ -110,7 +205,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         {
             try
             {
-                profiles.Add(BuildProfile(user, allItems, allSeries, seriesGenresById, seriesTmdbById, collectionIds));
+                profiles.Add(BuildProfile(user, allItems, allSeries, seriesGenresById, seriesTmdbById, collectionIds, new(excludedAtLoad, mediaEpochAtLoad)));
             }
             catch (Exception ex) when (!ex.IsFatal())
             {
@@ -131,9 +226,11 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <inheritdoc />
-    public IReadOnlyCollection<Guid> GetAllUserIds() =>
-        _userManager.GetUsers()?.Where(static u => !IsDisabled(u)).Select(static u => u.Id).ToList()
-            ?? (IReadOnlyCollection<Guid>)[];
+    public IReadOnlyCollection<Guid> GetAllUserIds()
+    {
+        var users = _userManager.GetUsers() ?? throw new InvalidOperationException("The live user roster is unavailable; account deletion cannot be inferred.");
+        return users.Where(static user => !IsDisabled(user)).Select(static user => user.Id).ToArray();
+    }
 
     /// <summary>
     ///     Returns true when the Jellyfin user is disabled. Disabled users are treated as if they do not
@@ -149,7 +246,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     ///     Called once and shared across all user profile builds.
     /// </summary>
     /// <returns>A list of all non-folder video items under the allowed roots.</returns>
-    internal IReadOnlyList<BaseItem> LoadAllVideoItems()
+    internal List<BaseItem> LoadAllVideoItems()
     {
         return LoadAllVideoItems(ResolveLibraryScope());
     }
@@ -159,14 +256,14 @@ public sealed class WatchHistoryService : IWatchHistoryService
     ///     Called once and shared across all user profile builds for series-level favorite detection.
     /// </summary>
     /// <returns>A list of all series items under the allowed roots.</returns>
-    internal IReadOnlyList<BaseItem> LoadAllSeriesItems()
+    internal List<BaseItem> LoadAllSeriesItems()
     {
         return LoadAllSeriesItems(ResolveLibraryScope());
     }
 
     // Loads non-folder video items and applies the pre-resolved excluded-library filter. The batch
     // profile path resolves the scope once and passes it here to avoid re-reading virtual folders.
-    private IReadOnlyList<BaseItem> LoadAllVideoItems(LibraryRootScope? scope)
+    private List<BaseItem> LoadAllVideoItems(LibraryRootScope? scope)
     {
         var items = _libraryManager.GetItemList(new InternalItemsQuery
         {
@@ -178,7 +275,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     // Loads series items and applies the pre-resolved excluded-library filter. See LoadAllVideoItems.
-    private IReadOnlyList<BaseItem> LoadAllSeriesItems(LibraryRootScope? scope)
+    private List<BaseItem> LoadAllSeriesItems(LibraryRootScope? scope)
     {
         var items = _libraryManager.GetItemList(new InternalItemsQuery
         {
@@ -243,32 +340,31 @@ public sealed class WatchHistoryService : IWatchHistoryService
     // filter never re-reads virtual folders per query. Mirrors the engine's per-run resolution to
     // keep training and scoring on the same item set (train/serve parity).
     private LibraryRootScope? ResolveLibraryScope()
+        => ResolveLibraryScope(_configService.GetConfiguration().ExcludedLibraries);
+
+    private LibraryRootScope? ResolveLibraryScope(string excludedLibraries)
     {
-        var excluded = CleanupConfigHelper.ParseCommaSeparated(_configService.GetConfiguration().ExcludedLibraries);
+        var excluded = CleanupConfigHelper.ParseCommaSeparated(excludedLibraries);
         return excluded.Count == 0
             ? null
             : LibraryPathResolver.GetLibraryRootScope(_libraryManager, excluded);
     }
 
     // Drops items that live in a library the user chose to exclude from recommendations. A null
-    // scope means no library is excluded, so the input is returned untouched and the common case
-    // pays no path cost. Applied identically here and in the candidate engine to keep training and
+    // scope disables only the root filter; virtual stubs remain ineligible. Applied identically
+    // here and in the candidate engine to keep training and
     // scoring on the same item set (train/serve parity).
-    private IReadOnlyList<BaseItem> FilterToAllowedLibraries(
+    private List<BaseItem> FilterToAllowedLibraries(
         IReadOnlyList<BaseItem> items,
         LibraryRootScope? scope)
     {
-        if (scope is null)
-        {
-            return items;
-        }
-
-        var kept = items.Where(item => LibraryPathResolver.IsAllowed(item.Path, scope)).ToList();
+        var kept = items.GroupBy(item => item.Id).Select(group => group.Last()).Where(item => !item.IsVirtualItem && VirtualItems?.IsVirtual(item) != true
+            && (scope is null || LibraryPathResolver.IsAllowed(item.Path, scope))).ToList();
 
         // Items with an empty path are dropped by the boundary check because they cannot be placed
         // under any root. That is correct, but surface the count so an operator can tell "excluded by
         // library filter" apart from "silently missing metadata" when a profile looks sparse.
-        var droppedEmptyPath = items.Count(item => string.IsNullOrEmpty(item.Path));
+        var droppedEmptyPath = scope is null ? 0 : items.Count(item => string.IsNullOrEmpty(item.Path));
         if (droppedEmptyPath > 0)
         {
             _pluginLog.LogDebug(
@@ -311,6 +407,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <param name="seriesGenresById">Pre-built seriesId to genres map (null to build on demand). Shared across users in the batch path so it is built once, not per user.</param>
     /// <param name="seriesTmdbById">Pre-built seriesId to TMDb-id map (null to build on demand). Shared across users in the batch path so it is built once, not per user.</param>
     /// <param name="collectionIds">Pre-resolved collection identities shared by the batch; null performs the single-profile lookup on demand.</param>
+    /// <param name="librarySnapshot">The configuration and invalidation epoch of supplied library data, for safe aggregate publication.</param>
     /// <returns>A populated watch profile for the user.</returns>
     internal UserWatchProfile BuildProfile(
         Jellyfin.Database.Implementations.Entities.User user,
@@ -318,8 +415,11 @@ public sealed class WatchHistoryService : IWatchHistoryService
         IReadOnlyList<BaseItem>? allSeries = null,
         Dictionary<Guid, IReadOnlyList<string>>? seriesGenresById = null,
         Dictionary<Guid, int>? seriesTmdbById = null,
-        Dictionary<Guid, int>? collectionIds = null)
+        Dictionary<Guid, int>? collectionIds = null,
+        ProfileLibrarySnapshot? librarySnapshot = null)
     {
+        var mediaEpoch = librarySnapshot?.Epoch ?? Volatile.Read(ref _mediaTargetEpoch);
+        var mediaExcluded = librarySnapshot?.ExcludedLibraries ?? _configService.GetConfiguration().ExcludedLibraries;
         var profile = new UserWatchProfile
         {
             UserId = user.Id,
@@ -334,7 +434,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         LibraryRootScope? onDemandScope = null;
         if (allItems is null || allSeries is null)
         {
-            onDemandScope = ResolveLibraryScope();
+            onDemandScope = ResolveLibraryScope(mediaExcluded);
         }
 
         allItems ??= LoadAllVideoItems(onDemandScope);
@@ -344,6 +444,17 @@ public sealed class WatchHistoryService : IWatchHistoryService
         // genres map once so a watched episode can inherit its series' genres, otherwise every episode-based
         // genre signal (engagement, SeriesAffinity) is systematically empty.
         allSeries ??= LoadAllSeriesItems(onDemandScope);
+        if (UseUserAccessQueries)
+        {
+            var allowed = LibraryUserAccess.GetAllowedIds(_libraryManager, user);
+            allowed.IntersectWith(allItems.Concat(allSeries).Select(item => item.Id));
+            profile.AccessibleItemIds = allowed;
+            allItems = allItems.Where(item => allowed.Contains(item.Id)).ToArray();
+            allSeries = allSeries.Where(item => allowed.Contains(item.Id)).ToArray();
+            seriesGenresById = BuildSeriesGenresLookup(allSeries);
+            seriesTmdbById = BuildSeriesTmdbLookup(allSeries);
+        }
+
         seriesGenresById ??= BuildSeriesGenresLookup(allSeries);
         seriesTmdbById ??= BuildSeriesTmdbLookup(allSeries);
         // Preserve the original dictionary-assignment semantics when a library query repeats an ID.
@@ -356,7 +467,10 @@ public sealed class WatchHistoryService : IWatchHistoryService
             uniqueSeries.ToDictionary(series => series.Id, series => (ContentAffinityResolver.ResolveSeriesStatus(series), ContentAffinityResolver.ResolveSeriesEndDate(series))),
             collectionIds ?? LoadCollectionIds(allItems))
         {
-            OfficialRatings = uniqueSeries.ToDictionary(series => series.Id, series => (string?)series.OfficialRating)
+            OfficialRatings = uniqueSeries.ToDictionary(series => series.Id, series => (string?)series.OfficialRating),
+            SeriesItems = uniqueSeries.ToDictionary(series => series.Id),
+            TvdbIds = uniqueSeries.ToDictionary(series => series.Id, TitleProviderIdentity.Tvdb),
+            ImdbIds = uniqueSeries.ToDictionary(series => series.Id, TitleProviderIdentity.Imdb)
         };
 
         var ratingSum = 0.0;
@@ -394,7 +508,11 @@ public sealed class WatchHistoryService : IWatchHistoryService
             var seriesUserData = LookupUserData(seriesUserDataLookup, series, user);
             if (seriesUserData is not null && seriesUserData.IsFavorite)
             {
-                AccumulateFavoriteSeries(profile, series, seriesUserData);
+                AccumulateFavoriteSeries(profile, series, seriesUserData, ResolveSeriesCredits(series.Id, metadata));
+            }
+            else if (seriesUserData?.Rating is > 0 && double.IsFinite(seriesUserData.Rating.Value))
+            {
+                AccumulateWatchedItem(profile, series, seriesUserData, watchedSeriesIds, metadata, ref ratingSum, ref ratingCount);
             }
         }
 
@@ -402,7 +520,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         BuildLanguageProfiles(profile, allItems, playbackSnapshots);
 
         // Build people (actors/directors) profile from BaseItem.People metadata
-        BuildPeopleProfile(profile, allItems, allSeries);
+        BuildPeopleProfile(profile);
 
         profile.WatchedSeriesCount = watchedSeriesIds.Count;
         profile.AverageCommunityRating = ratingCount > 0 ? Math.Round(ratingSum / ratingCount, 1) : 0;
@@ -414,11 +532,21 @@ public sealed class WatchHistoryService : IWatchHistoryService
             $"{profile.FavoriteCount} favorites",
             _logger);
 
+        CaptureMediaTarget(profile, mediaEpoch, mediaExcluded);
+
         return profile;
     }
 
+    private void CaptureMediaTarget(UserWatchProfile profile, long epoch, string excluded)
+    {
+        if (!_disposed && epoch == Volatile.Read(ref _mediaTargetEpoch) && excluded == _configService.GetConfiguration().ExcludedLibraries)
+        {
+            _mediaTargets[profile.UserId] = new(MediaTypeBalance.TargetSeriesShare(profile), epoch, DateOnly.FromDateTime(DateTime.UtcNow), profile.MaxParentalRating, excluded);
+        }
+    }
+
     private static bool IsIncludedInHistory(UserItemData data)
-        => data.Played || data.PlaybackPositionTicks > 0 || data.IsFavorite;
+        => data.Played || data.PlaybackPositionTicks > 0 || data.IsFavorite || (data.Rating is > 0 && double.IsFinite(data.Rating.Value));
 
     private UserItemData? GetPlaybackSnapshot(
         Dictionary<Guid, UserItemData?> snapshots,
@@ -452,7 +580,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
     private Dictionary<Guid, int> LoadCollectionIds(IReadOnlyList<BaseItem> items)
     {
-        if (!items.Any(ContentAffinityResolver.NeedsCollectionCorroboration))
+        if (!items.Any(ContentAffinityResolver.NeedsCollectionEvidence))
         {
             return [];
         }
@@ -468,7 +596,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
-            _pluginLog.LogDebug(LogCategory, "Ambiguous collection IDs remain unconfirmed; collection evidence is unavailable.", _logger);
+            _pluginLog.LogDebug(LogCategory, "Missing or ambiguous collection IDs remain unconfirmed; collection evidence is unavailable.", _logger);
             return [];
         }
     }
@@ -496,6 +624,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         var itemPeople = ResolveWatchedItemPeople(item);
 
         var (billedNames, billedWeights) = SimilarityComputer.ExtractBilledPeople(itemPeople);
+        var ownCredits = CreditMetadataCapture.Native(item, itemPeople, DateTime.UtcNow);
 
         Guid? seriesId = null;
         if (item is Episode ep)
@@ -518,6 +647,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         var ownTags = item.Tags?.ToArray() ?? [];
         var parentStudios = ParentValues(seriesId, metadata.Studios);
         var parentTags = ParentValues(seriesId, metadata.Tags);
+        var seriesCredits = seriesId.HasValue ? ResolveSeriesCredits(seriesId.Value, metadata) : null;
         var lifecycle = seriesId.HasValue && metadata.Lifecycle.TryGetValue(seriesId.Value, out var parentLifecycle)
             ? parentLifecycle
             : (Status: ContentAffinityResolver.ResolveSeriesStatus(item), EndDate: ContentAffinityResolver.ResolveSeriesEndDate(item));
@@ -540,6 +670,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             CommunityRating = item.CommunityRating,
             OfficialRating = officialRating,
             Genres = genres,
+            LocalGenres = genres.ToArray(),
             Year = item.ProductionYear,
             SeriesId = seriesId,
             TmdbId = TmdbLibraryMapper.TryGetTmdbId(item, out var itemTmdbId) ? itemTmdbId : 0,
@@ -548,6 +679,8 @@ public sealed class WatchHistoryService : IWatchHistoryService
             PrimaryImageTag = null,
             PeopleNames = billedNames,
             PeopleWeights = billedWeights,
+            Credits = ownCredits,
+            SeriesCredits = seriesCredits,
 
             // Content-affinity source fields.
             TmdbCollectionName = ContentAffinityResolver.ResolveTmdbCollectionName(item),
@@ -558,16 +691,67 @@ public sealed class WatchHistoryService : IWatchHistoryService
             OwnTags = ownTags,
             SeriesStudios = parentStudios,
             SeriesTags = parentTags,
-            ProductionCountries = ContentAffinityResolver.ResolveProductionCountries(item),
+            ProductionCountries = ownCredits.ProductionCountries is { IsDefault: false, Length: > 0 } ownCountries
+                ? ownCountries.ToArray()
+                : seriesCredits?.ProductionCountries?.ToArray() ?? [],
             InheritedTags = ContentAffinityResolver.ResolveInheritedTags(item),
             SeriesStatus = lifecycle.Status,
             EndDate = lifecycle.EndDate,
-            WriterNames = ContentAffinityResolver.ExtractWriterNames(itemPeople)
+            WriterNames = ownCredits.People(writers: true).Concat(seriesCredits?.People(writers: true) ?? [])
+                .Select(person => person.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
         };
 
+        if (item is Episode && seriesCredits is not null)
+        {
+            var combinedBilling = seriesCredits.People().ToArray();
+            watchedItem.PeopleNames = combinedBilling.Select(person => person.Name).ToArray();
+            watchedItem.PeopleWeights = combinedBilling.Select(person => person.BillingWeight).ToArray();
+        }
+
+        watchedItem.TitleMetadata = CachedWatchedTitleMetadata(item, watchedItem, metadata);
+        if (item is not Episode)
+        {
+            watchedItem.Credits = CreditMetadataCapture.WithAvailableTitleMetadata(item, ownCredits, watchedItem.TitleMetadata);
+            var supplied = watchedItem.Credits.People().ToArray();
+            watchedItem.PeopleNames = supplied.Select(person => person.Name).ToArray();
+            watchedItem.PeopleWeights = supplied.Select(person => person.BillingWeight).ToArray();
+            watchedItem.WriterNames = watchedItem.Credits.People(writers: true).Select(person => person.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            watchedItem.ProductionCountries = watchedItem.Credits.ProductionCountries?.ToArray() ?? [];
+        }
+
+        ApplyCachedGenres(watchedItem);
         profile.WatchedItems.Add(watchedItem);
 
-        AccumulateWatchedItemStatistics(profile, item, userData, watchedSeriesIds, genres, ref ratingSum, ref ratingCount);
+        AccumulateWatchedItemStatistics(profile, item, userData, watchedSeriesIds, watchedItem.Genres, ref ratingSum, ref ratingCount);
+    }
+
+    private TitleMetadataSnapshot? CachedWatchedTitleMetadata(BaseItem item, WatchedItemInfo row, WatchedMetadata metadata)
+    {
+        if (item is Episode && !row.SeriesId.HasValue)
+        {
+            return null;
+        }
+
+        var seriesId = row.SeriesId;
+        var titleId = seriesId.HasValue ? row.SeriesTmdbId : row.TmdbId;
+        var titleType = seriesId.HasValue || item is Series ? "tv" : "movie";
+        var tvdbId = seriesId.HasValue ? metadata.TvdbIds.GetValueOrDefault(seriesId.Value) : TitleProviderIdentity.Tvdb(item);
+        var imdbId = seriesId.HasValue ? metadata.ImdbIds.GetValueOrDefault(seriesId.Value) : TitleProviderIdentity.Imdb(item);
+        return TitleMetadataCache?.Get(_configService.GetConfiguration(), titleId, titleType, tvdbId, imdbId);
+    }
+
+    private static void ApplyCachedGenres(WatchedItemInfo row)
+    {
+        row.LocalGenres ??= row.Genres.ToArray();
+        if (row.Genres.Count == 0 && row.TitleMetadata?.GenreIds is { } genreIds)
+        {
+            row.Genres = GenreNormalizer.Set(TmdbGenreMap.ToJellyfinGenres(genreIds)).ToArray();
+        }
+
+        if (row.Genres.Count == 0 && row.TitleMetadata?.SourceGenres is { } sourceGenres)
+        {
+            row.Genres = GenreNormalizer.Set(sourceGenres).ToArray();
+        }
     }
 
     private static IReadOnlyList<string> WatchedGenres(BaseItem item, Guid? seriesId, Dictionary<Guid, IReadOnlyList<string>> lookup)
@@ -610,6 +794,24 @@ public sealed class WatchHistoryService : IWatchHistoryService
         }
     }
 
+    private CreditMetadataSnapshot? ResolveSeriesCredits(Guid id, WatchedMetadata metadata)
+    {
+        if (metadata.SeriesCreditSnapshots.TryGetValue(id, out var existing))
+        {
+            return existing;
+        }
+
+        if (!metadata.SeriesItems.TryGetValue(id, out var series))
+        {
+            return null;
+        }
+
+        var provider = TitleMetadataCache?.Get(_configService.GetConfiguration(), metadata.TmdbIds.GetValueOrDefault(id), "tv", metadata.TvdbIds.GetValueOrDefault(id), metadata.ImdbIds.GetValueOrDefault(id));
+        var snapshot = CreditMetadataCapture.WithAvailableTitleMetadata(series, CreditMetadataCapture.Native(series, ResolveWatchedItemPeople(series), DateTime.UtcNow), provider);
+        metadata.SeriesCreditSnapshots[id] = snapshot;
+        return snapshot;
+    }
+
     /// <summary>
     ///     Folds a watched item's statistics (played counts, runtime, genres, favorites, community rating, last activity) into the profile.
     /// </summary>
@@ -629,7 +831,33 @@ public sealed class WatchHistoryService : IWatchHistoryService
         ref double ratingSum,
         ref int ratingCount)
     {
-        // Accumulate statistics
+        AccumulatePlaybackStatistics(profile, item, userData, watchedSeriesIds);
+
+        // Track genre distribution
+        if (userData.Played || userData.PlaybackPositionTicks > 0 || userData.IsFavorite || userData.Rating is > 5)
+        {
+            AccumulateGenreDistribution(profile, genres);
+        }
+
+        if (userData.IsFavorite)
+        {
+            profile.FavoriteCount++;
+        }
+
+        if (item.CommunityRating.HasValue && (userData.Played || userData.PlayCount > 0 || userData.PlaybackPositionTicks > 0 || userData.IsFavorite))
+        {
+            ratingSum += item.CommunityRating.Value;
+            ratingCount++;
+        }
+
+        if (userData.LastPlayedDate.HasValue && (!profile.LastActivityDate.HasValue || userData.LastPlayedDate > profile.LastActivityDate))
+        {
+            profile.LastActivityDate = userData.LastPlayedDate;
+        }
+    }
+
+    private static void AccumulatePlaybackStatistics(UserWatchProfile profile, BaseItem item, UserItemData userData, HashSet<Guid> watchedSeriesIds)
+    {
         if (userData.Played)
         {
             if (item is Movie)
@@ -646,33 +874,10 @@ public sealed class WatchHistoryService : IWatchHistoryService
             }
 
             // Add runtime to total watch time
-            if (item.RunTimeTicks.HasValue)
+            if (item is Movie or Episode && item.RunTimeTicks.HasValue)
             {
                 profile.TotalWatchTimeTicks += item.RunTimeTicks.Value;
             }
-        }
-
-        // Track genre distribution
-        AccumulateGenreDistribution(profile, genres);
-
-        // Track favorites
-        if (userData.IsFavorite)
-        {
-            profile.FavoriteCount++;
-        }
-
-        // Track community rating for average
-        if (item.CommunityRating.HasValue)
-        {
-            ratingSum += item.CommunityRating.Value;
-            ratingCount++;
-        }
-
-        // Track last activity
-        if (userData.LastPlayedDate.HasValue &&
-            (!profile.LastActivityDate.HasValue || userData.LastPlayedDate > profile.LastActivityDate))
-        {
-            profile.LastActivityDate = userData.LastPlayedDate;
         }
     }
 
@@ -682,30 +887,20 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <param name="profile">The user profile being populated.</param>
     /// <param name="series">The favorited series item.</param>
     /// <param name="seriesUserData">The user data for the series (already known favorite).</param>
+    /// <param name="credits">The same once-per-parent detached credit observation used by its episodes.</param>
     private void AccumulateFavoriteSeries(
         UserWatchProfile profile,
         BaseItem series,
-        UserItemData seriesUserData)
+        UserItemData seriesUserData,
+        CreditMetadataSnapshot? credits)
     {
         profile.FavoriteSeriesIds.Add(series.Id);
         profile.FavoriteCount++;
 
         // Create a synthetic WatchedItemInfo so that the series' genres, year, and community rating flow into PreferenceBuilder.BuildGenrePreferenceVector() with the FavoriteGenreBoostFactor (3×).
-        IReadOnlyList<PersonInfo>? seriesPeople;
-        try
-        {
-            seriesPeople = _libraryManager.GetPeople(series);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex) when (!ex.IsFatal())
-        {
-            seriesPeople = null;
-        }
-
-        var (favBilledNames, favBilledWeights) = SimilarityComputer.ExtractBilledPeople(seriesPeople);
+        var billed = credits?.People().ToArray() ?? [];
+        var favBilledNames = billed.Select(person => person.Name).ToArray();
+        var favBilledWeights = billed.Select(person => person.BillingWeight).ToArray();
 
         // Seed the series' own TMDb id so a duplicate library entry of this show (a second copy
         // with a different Jellyfin Guid) is excluded by the provider-id fallback, matching how a
@@ -713,7 +908,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         // because the favorite IS the series, not an episode of one.
         var favoriteSeriesTmdbId = TmdbLibraryMapper.TryGetTmdbId(series, out var resolvedTmdbId) ? resolvedTmdbId : 0;
 
-        profile.WatchedItems.Add(new WatchedItemInfo
+        var favorite = new WatchedItemInfo
         {
             ItemId = series.Id,
             Name = series.Name ?? string.Empty,
@@ -727,6 +922,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             UserRating = seriesUserData.Rating,
             CommunityRating = series.CommunityRating,
             OfficialRating = series.OfficialRating,
+            TitleMetadata = TitleMetadataCache?.Get(_configService.GetConfiguration(), favoriteSeriesTmdbId, "tv", TitleProviderIdentity.Tvdb(series), TitleProviderIdentity.Imdb(series)),
             Genres = series.Genres ?? [],
             Year = series.ProductionYear,
             SeriesId = null, // This IS the series itself, not an episode
@@ -736,6 +932,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             PrimaryImageTag = null,
             PeopleNames = favBilledNames,
             PeopleWeights = favBilledWeights,
+            Credits = credits,
 
             // Content-affinity source fields for the favorited series, using the same shared resolvers as the primary loop so a favorited series contributes franchise/country/ inherited-tag/writer/completability preference signal identically to a watched item.
             TmdbCollectionName = ContentAffinityResolver.ResolveTmdbCollectionName(series),
@@ -743,15 +940,17 @@ public sealed class WatchHistoryService : IWatchHistoryService
             Tags = series.Tags?.ToArray() ?? [],
             OwnStudios = series.Studios?.ToArray() ?? [],
             OwnTags = series.Tags?.ToArray() ?? [],
-            ProductionCountries = ContentAffinityResolver.ResolveProductionCountries(series),
+            ProductionCountries = credits?.ProductionCountries?.ToArray() ?? [],
             InheritedTags = ContentAffinityResolver.ResolveInheritedTags(series),
             SeriesStatus = ContentAffinityResolver.ResolveSeriesStatus(series),
             EndDate = ContentAffinityResolver.ResolveSeriesEndDate(series),
-            WriterNames = ContentAffinityResolver.ExtractWriterNames(seriesPeople)
-        });
+            WriterNames = credits?.People(writers: true).Select(person => person.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() ?? []
+        };
+        ApplyCachedGenres(favorite);
+        profile.WatchedItems.Add(favorite);
 
         // Also accumulate genre distribution for series-level favorites
-        AccumulateGenreDistribution(profile, series.Genres);
+        AccumulateGenreDistribution(profile, favorite.Genres);
     }
 
     /// <summary>
@@ -823,91 +1022,20 @@ public sealed class WatchHistoryService : IWatchHistoryService
     ///     Builds the user's people (actors/directors) preference profile by analyzing BaseItem.People metadata for each watched or favorited item.
     /// </summary>
     /// <param name="profile">The user profile to populate with people data.</param>
-    /// <param name="allItems">Pre-loaded video items from the library.</param>
-    /// <param name="allSeries">Pre-loaded series items from the library.</param>
-    private void BuildPeopleProfile(
-        UserWatchProfile profile,
-        IReadOnlyList<BaseItem> allItems,
-        IReadOnlyList<BaseItem>? allSeries)
+    private static void BuildPeopleProfile(UserWatchProfile profile)
     {
-        // Track which items we've already processed people for (avoid double-counting)
-        var processedItemIds = new HashSet<Guid>();
-
-        // For episodes, we want to count people at the series level to avoid
-        // over-counting actors who appear in every episode. Track processed series.
-        var processedSeriesIds = new HashSet<Guid>();
-
-        var seriesLookup = BuildSeriesLookup(allSeries);
-        var itemLookup = BuildItemLookup(allItems, allSeries);
-
-        // Maximum number of actors to consider per item (top-billed only)
-        const int maxActorsPerItem = 5;
-
-        foreach (var watchedItem in profile.WatchedItems)
+        foreach (var title in profile.WatchedItems.Where(HasMeaningfulInteraction)
+            .GroupBy(row => row.SeriesId.GetValueOrDefault() != Guid.Empty ? row.SeriesId!.Value : row.ItemId))
         {
-            if (!HasMeaningfulInteraction(watchedItem))
+            var names = title.SelectMany(row => CreditPreferenceProfile.Resolve(row)?.People() ?? [])
+                .GroupBy(person => person.Name, StringComparer.OrdinalIgnoreCase).Select(group => group.MaxBy(person => person.BillingWeight)!)
+                .OrderByDescending(person => person.BillingWeight).GroupBy(person => person.Kind)
+                .SelectMany(group => group.Take(5)).Select(person => person.Name).Distinct(StringComparer.OrdinalIgnoreCase);
+            foreach (var name in names)
             {
-                continue;
-            }
-
-            ProcessWatchedItemPeople(
-                profile,
-                watchedItem,
-                seriesLookup,
-                itemLookup,
-                processedSeriesIds,
-                processedItemIds,
-                maxActorsPerItem);
-        }
-    }
-
-    /// <summary>
-    ///     Builds a series-ID lookup for efficient series-level people aggregation. Extracted
-    ///     verbatim from <see cref="BuildPeopleProfile"/>.
-    /// </summary>
-    /// <param name="allSeries">Pre-loaded series items, or <c>null</c>.</param>
-    /// <returns>A series lookup, or <c>null</c> when no series were supplied.</returns>
-    private static Dictionary<Guid, BaseItem>? BuildSeriesLookup(IReadOnlyList<BaseItem>? allSeries)
-    {
-        if (allSeries is not { Count: > 0 })
-        {
-            return null;
-        }
-
-        var seriesLookup = new Dictionary<Guid, BaseItem>(allSeries.Count);
-        foreach (var s in allSeries)
-        {
-            seriesLookup.TryAdd(s.Id, s);
-        }
-
-        return seriesLookup;
-    }
-
-    /// <summary>
-    ///     Builds an item-ID lookup from the video items plus series items for O(1) access (avoids N+1 DB queries).
-    /// </summary>
-    /// <param name="allItems">Pre-loaded video items from the library.</param>
-    /// <param name="allSeries">Pre-loaded series items from the library, or <c>null</c>.</param>
-    /// <returns>A combined item lookup keyed by item ID.</returns>
-    private static Dictionary<Guid, BaseItem> BuildItemLookup(
-        IReadOnlyList<BaseItem> allItems,
-        IReadOnlyList<BaseItem>? allSeries)
-    {
-        var itemLookup = new Dictionary<Guid, BaseItem>(allItems.Count + (allSeries?.Count ?? 0));
-        foreach (var item in allItems)
-        {
-            itemLookup.TryAdd(item.Id, item);
-        }
-
-        if (allSeries is not null)
-        {
-            foreach (var series in allSeries)
-            {
-                itemLookup.TryAdd(series.Id, series);
+                profile.PeopleProfile[name] = profile.PeopleProfile.GetValueOrDefault(name) + 1;
             }
         }
-
-        return itemLookup;
     }
 
     /// <summary>
@@ -925,139 +1053,6 @@ public sealed class WatchHistoryService : IWatchHistoryService
         return watchedItem.PlaybackPositionTicks > 0
             && watchedItem.RuntimeTicks > 0
             && (double)watchedItem.PlaybackPositionTicks / watchedItem.RuntimeTicks >= 0.15;
-    }
-
-    /// <summary>
-    ///     Aggregates people for a single watched item, dispatching episodes to their parent series (series-level metadata only) and movies/other items directly, while de-duplicating via the processed-ID sets.
-    /// </summary>
-    /// <param name="profile">The user profile being populated.</param>
-    /// <param name="watchedItem">The watched item to process.</param>
-    /// <param name="seriesLookup">The series lookup, or <c>null</c>.</param>
-    /// <param name="itemLookup">The combined item lookup.</param>
-    /// <param name="processedSeriesIds">Accumulator of already-processed series IDs.</param>
-    /// <param name="processedItemIds">Accumulator of already-processed item IDs.</param>
-    /// <param name="maxActorsPerItem">Maximum number of actors to consider per item.</param>
-    private void ProcessWatchedItemPeople(
-        UserWatchProfile profile,
-        WatchedItemInfo watchedItem,
-        Dictionary<Guid, BaseItem>? seriesLookup,
-        Dictionary<Guid, BaseItem> itemLookup,
-        HashSet<Guid> processedSeriesIds,
-        HashSet<Guid> processedItemIds,
-        int maxActorsPerItem)
-    {
-        // For episodes: aggregate at series level to avoid per-episode noise
-        if (watchedItem.SeriesId.HasValue && watchedItem.SeriesId.Value != Guid.Empty)
-        {
-            var seriesId = watchedItem.SeriesId.Value;
-            if (!processedSeriesIds.Add(seriesId))
-            {
-                return; // Already counted people for this series
-            }
-
-            // Also mark in processedItemIds so that synthetic favorite-series entries
-            // (which have ItemId = seriesId, SeriesId = null) don't double-count.
-            processedItemIds.Add(seriesId);
-
-            // Use series-level metadata only. If the series is not in the lookup, skip entirely rather than falling back to episode-level data.
-            if (seriesLookup != null && seriesLookup.TryGetValue(seriesId, out var seriesItem))
-            {
-                AggregatePeopleFromItem(profile, seriesItem, maxActorsPerItem);
-            }
-
-            return;
-        }
-
-        // For movies and other items: aggregate directly
-        if (!processedItemIds.Add(watchedItem.ItemId))
-        {
-            return; // Already processed
-        }
-
-        // Look up the actual BaseItem from the pre-built dictionary (O(1) instead of DB call)
-        if (itemLookup.TryGetValue(watchedItem.ItemId, out var baseItem))
-        {
-            AggregatePeopleFromItem(profile, baseItem, maxActorsPerItem);
-        }
-    }
-
-    /// <summary>
-    ///     Aggregates people (actors/directors) from a single BaseItem into the profile's PeopleProfile.
-    /// </summary>
-    /// <param name="profile">The user profile to populate.</param>
-    /// <param name="item">The library item to extract people from.</param>
-    /// <param name="maxActors">Maximum number of actors to include (top-billed by sort order).</param>
-    private void AggregatePeopleFromItem(UserWatchProfile profile, BaseItem item, int maxActors)
-    {
-        IReadOnlyList<PersonInfo>? people;
-        try
-        {
-            people = _libraryManager.GetPeople(item);
-        }
-        catch (OperationCanceledException)
-        {
-            // Cancellation must propagate - skipping the item silently would defeat
-            // any cooperative cancellation the caller relies on.
-            throw;
-        }
-        catch (Exception ex) when (!ex.IsFatal())
-        {
-            // Graceful: skip items where people lookup fails
-            return;
-        }
-
-        if (people is null || people.Count == 0)
-        {
-            return;
-        }
-
-        var actorCount = 0;
-        var directorCount = 0;
-        const int maxDirectorsPerItem = 5;
-        var seenPeople = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var person in people)
-        {
-            if (string.IsNullOrWhiteSpace(person.Name) || seenPeople.Contains(person.Name))
-            {
-                continue;
-            }
-
-            // Only include Actors and Directors (with caps to prevent metadata bloat)
-            if (person.Type == PersonKind.Director)
-            {
-                TryAddPerson(profile, person.Name, seenPeople, ref directorCount, maxDirectorsPerItem);
-            }
-            else if (person.Type == PersonKind.Actor)
-            {
-                TryAddPerson(profile, person.Name, seenPeople, ref actorCount, maxActors);
-            }
-        }
-    }
-
-    /// <summary>
-    ///     Adds a person (actor or director) to the profile's people distribution if the per-kind cap has not been reached, incrementing the running kind count and marking the name as seen.
-    /// </summary>
-    /// <param name="profile">The user profile being populated.</param>
-    /// <param name="personName">The non-empty, not-yet-seen person name.</param>
-    /// <param name="seenPeople">Accumulator of already-counted names for this item.</param>
-    /// <param name="kindCount">Running count for this person kind (updated in place).</param>
-    /// <param name="maxForKind">Maximum number of persons to include for this kind.</param>
-    private static void TryAddPerson(
-        UserWatchProfile profile,
-        string personName,
-        HashSet<string> seenPeople,
-        ref int kindCount,
-        int maxForKind)
-    {
-        if (kindCount >= maxForKind)
-        {
-            return;
-        }
-
-        kindCount++;
-        seenPeople.Add(personName);
-        profile.PeopleProfile.TryGetValue(personName, out var count);
-        profile.PeopleProfile[personName] = count + 1;
     }
 
     /// <summary>
@@ -1123,6 +1118,11 @@ public sealed class WatchHistoryService : IWatchHistoryService
         return _userDataManager.GetUserData(user, item);
     }
 
+    /// <summary>Captures the library configuration and invalidation epoch before loading profile sources.</summary>
+    /// <param name="ExcludedLibraries">The library exclusions at acquisition.</param>
+    /// <param name="Epoch">The source-invalidation epoch at acquisition.</param>
+    internal readonly record struct ProfileLibrarySnapshot(string ExcludedLibraries, long Epoch);
+
     /// <summary>Detached metadata shared by all watched items in one profile build.</summary>
     /// <param name="Genres">Parent-series genres.</param>
     /// <param name="TmdbIds">Parent-series provider title identities.</param>
@@ -1138,7 +1138,21 @@ public sealed class WatchHistoryService : IWatchHistoryService
         Dictionary<Guid, (string? Status, DateTime? EndDate)> Lifecycle,
         Dictionary<Guid, int> CollectionIds)
     {
+        /// <summary>Gets allowed loaded parent items; no per-episode lookup may escape this scope.</summary>
+        public Dictionary<Guid, BaseItem> SeriesItems { get; init; } = [];
+
+        /// <summary>Gets once-per-parent immutable credit captures shared by episodes and a favorite row.</summary>
+        public Dictionary<Guid, CreditMetadataSnapshot> SeriesCreditSnapshots { get; } = [];
+
         /// <summary>Gets detached parent certification metadata without another library query.</summary>
         public Dictionary<Guid, string?> OfficialRatings { get; init; } = [];
+
+        /// <summary>Gets optional TVDB identities detached from each parent series.</summary>
+        public Dictionary<Guid, int> TvdbIds { get; init; } = [];
+
+        /// <summary>Gets optional IMDb links detached from each parent series.</summary>
+        public Dictionary<Guid, string?> ImdbIds { get; init; } = [];
     }
+
+    private sealed record MediaTargetSnapshot(double? Share, long Epoch, DateOnly Day, int? MaximumRating, string ExcludedLibraries);
 }

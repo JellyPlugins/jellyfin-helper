@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -69,7 +71,7 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
     /// <summary>
     ///     Creates a SeerrDiscoveryService backed by handler. Every call to IHttpClientFactory.CreateClient returns a fresh HttpClient wrapping the same handler so that the request-count tracking in CountingHttpHandler accumulates across all calls.
     /// </summary>
-    private SeerrDiscoveryService BuildService(CountingHttpHandler handler)
+    private SeerrDiscoveryService BuildService(CountingHttpHandler handler, Mock<IArrIntegrationService>? configuredArr = null, Mock<ILibraryManager>? configuredLibrary = null, Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataCache? metadata = null, Action? beforeRosterSelection = null, Mock<IDiscoveryFeedbackStore>? configuredFeedback = null)
     {
         var httpFactoryMock = new Mock<IHttpClientFactory>();
         httpFactoryMock
@@ -77,9 +79,9 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
             .Returns(() => new HttpClient(handler, disposeHandler: false));
 
         var history = new Mock<IWatchHistoryService>();
-        var arr = new Mock<IArrIntegrationService>();
-        var libraryManager = TestMockFactory.CreateLibraryManager();
-        libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
+        var arr = configuredArr ?? new Mock<IArrIntegrationService>();
+        var libraryManager = configuredLibrary ?? TestMockFactory.CreateLibraryManager();
+        if (configuredLibrary is null) libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
         var learned = new LearnedScoringStrategy(null, new Mock<ILogger<LearnedScoringStrategy>>().Object);
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
         var neural = new NeuralScoringStrategy(null, new Mock<ILogger<NeuralScoringStrategy>>().Object);
@@ -90,7 +92,7 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
             EnsembleScoringStrategy.DefaultGenrePenaltyFloor,
             new Mock<ILogger<EnsembleScoringStrategy>>().Object);
         var pluginLog = new Mock<IPluginLogService>();
-        var feedbackStore = new Mock<IDiscoveryFeedbackStore>();
+        var feedbackStore = configuredFeedback ?? new Mock<IDiscoveryFeedbackStore>();
 
         var perUserRegistry = new PerUserEnsembleRegistry(
             ensemble,
@@ -114,10 +116,284 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
             pluginLog.Object,
             TestFixtures.TestMockFactory.CreateSecretProtector(),
             TestFixtures.TestMockFactory.CreateVirtualItemDetector(),
-            new Mock<ILogger<SeerrDiscoveryService>>().Object);
+            new Mock<ILogger<SeerrDiscoveryService>>().Object,
+            titleMetadataCache: metadata) { BeforeRosterCacheSelection = beforeRosterSelection };
     }
 
     // Tests
+
+    [Fact]
+    public async Task ASourceChangeBetweenCaptureAndWarmRosterSelectionCannotReturnTheOldAccounts()
+    {
+        using var handler = new CountingHttpHandler();
+        handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson);
+        var change = false;
+        var hookCalls = 0;
+        var service = BuildService(handler, beforeRosterSelection: () =>
+        {
+            if (change) { hookCalls++; Plugin.Instance!.Configuration.SeerrUrl = "https://replacement.example.com"; }
+        });
+        Assert.NotEmpty(await service.GetSeerrUsersAsync(TestContext.Current.CancellationToken));
+        change = true;
+        Assert.Empty(await service.GetSeerrUsersAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(1, hookCalls);
+        Assert.Equal(1, handler.RequestCount("/api/v1/user"));
+    }
+
+    [Fact]
+    public async Task TheFinalReceiptAdmissionGuardRejectsAWithdrawnCapturedSource()
+    {
+        using var handler = new CountingHttpHandler();
+        var feedback = new Mock<IDiscoveryFeedbackStore>(MockBehavior.Strict);
+        var service = BuildService(handler, configuredFeedback: feedback);
+        var scope = (string?)typeof(SeerrDiscoveryService).GetMethod("UserSourceScope", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [Plugin.Instance?.Configuration]);
+        Plugin.Instance!.Configuration.SeerrUrl = "https://replacement.example.com";
+        var receipt = (Task<bool>)typeof(SeerrDiscoveryService).GetMethod("ReconcileSingleItemAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [Guid.NewGuid(), 77, "movie", scope, TestContext.Current.CancellationToken])!;
+        Assert.False(await receipt.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+        feedback.VerifyNoOtherCalls();
+        Assert.Equal(0, handler.RequestCount("/api/v1/request"));
+        Assert.Equal(0, handler.RequestCount("/api/v1/user"));
+    }
+
+    [Fact]
+    public async Task ReconciliationRechecksItsCapturedSourceAfterWaitingForTheCache()
+    {
+        var cacheReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var handler = new CountingHttpHandler();
+        handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson);
+        handler.EnqueueResponse("/api/v1/request", HttpStatusCode.OK, """{"pageInfo":{"results":1},"results":[{"media":{"tmdbId":77,"mediaType":"movie"}}]}""");
+        var user = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        Assert.True(_cache.Save([new DiscoveryResult { UserId = user, Recommendations = [new() { TmdbId = 77 }] }]));
+        var feedback = new Mock<IDiscoveryFeedbackStore>(MockBehavior.Strict);
+        var service = BuildService(handler, configuredFeedback: feedback);
+        var cacheGate = (SemaphoreSlim)typeof(DiscoveryCacheService).GetField("_fileLock", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_cache)!;
+        await cacheGate.WaitAsync(TestContext.Current.CancellationToken);
+        _cache.BeforeLoadWait = () => cacheReached.TrySetResult();
+        var reconciliation = service.ReconcileRequestedItemsAsync(user, TestContext.Current.CancellationToken);
+        try
+        {
+            await cacheReached.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.False(reconciliation.IsCompleted);
+            Plugin.Instance!.Configuration.SeerrUrl = "https://replacement.example.com";
+        }
+        finally
+        {
+            cacheGate.Release();
+            await reconciliation.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            _cache.BeforeLoadWait = null;
+        }
+        Assert.Equal(0, await reconciliation.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+        Assert.Equal(1, handler.RequestCount("/api/v1/user"));
+        Assert.Equal(1, handler.RequestCount("/api/v1/request"));
+        feedback.VerifyNoOtherCalls();
+        Assert.False(Assert.Single(Assert.Single(_cache.Load()).Recommendations).AlreadyRequested);
+    }
+
+    [Fact]
+    public async Task SourceWithdrawalDuringTheFirstReceiptWaitCannotAdmitAnotherOldSourceReceipt()
+    {
+        using var handler = new CountingHttpHandler();
+        handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson);
+        handler.EnqueueResponse("/api/v1/request", HttpStatusCode.OK, """{"pageInfo":{"results":2},"results":[{"media":{"tmdbId":77,"mediaType":"movie"}},{"media":{"tmdbId":78,"mediaType":"movie"}}]}""");
+        var user = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        Assert.True(_cache.Save([new DiscoveryResult { UserId = user, Recommendations = [new() { TmdbId = 77 }, new() { TmdbId = 78 }] }]));
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var feedback = new Mock<IDiscoveryFeedbackStore>(MockBehavior.Strict);
+        feedback.Setup(store => store.GetPendingRequestedItems(user)).Returns(new HashSet<(int, string)>());
+        feedback.Setup(store => store.GetRequestedItems(user)).Returns(new HashSet<(int, string)>());
+        feedback.Setup(store => store.RecordRequestedAsync(user, It.IsAny<int>(), "movie", It.IsAny<CancellationToken>())).Returns(() => { entered.TrySetResult(); return release.Task; });
+        var reconciliation = BuildService(handler, configuredFeedback: feedback).ReconcileRequestedItemsAsync(user, TestContext.Current.CancellationToken);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Plugin.Instance!.Configuration.SeerrApiKey = "replacement-key";
+            release.TrySetResult(true);
+            Assert.Equal(0, await reconciliation.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            feedback.Verify(store => store.RecordRequestedAsync(user, It.IsAny<int>(), "movie", It.IsAny<CancellationToken>()), Times.Once);
+            Assert.All(Assert.Single(_cache.Load()).Recommendations, card => Assert.False(card.AlreadyRequested));
+        }
+        finally { release.TrySetResult(true); await reconciliation.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken); }
+    }
+
+    [Theory]
+    [InlineData("url")]
+    [InlineData("key")]
+    [InlineData("tls")]
+    public async Task ReconciliationCannotApplyAnOldRosterAccountAfterItsSourceChanges(string change)
+    {
+        using var handler = new CountingHttpHandler
+        {
+            BeforeResponse = (_, _) =>
+            {
+                var current = Plugin.Instance!.Configuration;
+                typeof(Plugin).GetProperty(nameof(Plugin.Configuration))!.SetValue(Plugin.Instance, new PluginConfiguration
+                {
+                    SeerrUrl = change == "url" ? "https://replacement.example.com" : current.SeerrUrl,
+                    SeerrApiKey = change == "key" ? "replacement-key" : current.SeerrApiKey,
+                    SeerrSkipCertificateValidation = change == "tls"
+                });
+                return Task.CompletedTask;
+            }
+        };
+        handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson);
+        var user = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        Assert.True(_cache.Save([new DiscoveryResult { UserId = user, Recommendations = [new() { TmdbId = 77 }] }]));
+        Assert.Equal(0, await BuildService(handler).ReconcileRequestedItemsAsync(user, TestContext.Current.CancellationToken));
+        Assert.Equal(1, handler.RequestCount("/api/v1/user"));
+        Assert.Equal(0, handler.RequestCount("/api/v1/request"));
+        Assert.False(Assert.Single(Assert.Single(_cache.Load()).Recommendations).AlreadyRequested);
+    }
+
+    [Fact]
+    public async Task ArrCacheCannotRetainWithdrawnLibraryAliasesButDirectLibraryOwnershipRemainsExcluded()
+    {
+        var config = Plugin.Instance!.Configuration;
+        config.TraktSourcingEnabled = true;
+        var metadata = new Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataCache();
+        metadata.StoreSupplemental(config, new Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataSnapshot
+        {
+            TmdbId = 700, TvdbId = 800, MediaType = "tv", FetchedAtUtc = DateTime.UtcNow
+        }, new("trakt", "https://api.trakt.tv", "public-metadata"), null);
+        var library = new Mock<ILibraryManager>();
+        library.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(
+        [
+            new MediaBrowser.Controller.Entities.TV.Series { Id = Guid.NewGuid(), Path = "/media/alias", ProviderIds = new() { ["Tvdb"] = "800" } },
+            new MediaBrowser.Controller.Entities.TV.Series { Id = Guid.NewGuid(), Path = "/media/direct", ProviderIds = new() { ["Tmdb"] = "701" } }
+        ]);
+        using var handler = new CountingHttpHandler();
+        var service = BuildService(handler, configuredLibrary: library, metadata: metadata);
+        Task<HashSet<(int, string)>> Read() => (Task<HashSet<(int, string)>>)typeof(SeerrDiscoveryService).GetMethod("GetCachedExclusionsCoreAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [config, true, TestContext.Current.CancellationToken])!;
+        Assert.Contains((700, "tv"), await Read());
+        config.TraktSourcingEnabled = false;
+        var changed = await Read();
+        Assert.DoesNotContain((700, "tv"), changed);
+        Assert.Contains((701, "tv"), changed);
+        Assert.Equal(0, handler.RequestCount("/api/v1/user"));
+    }
+
+    [Theory]
+    [InlineData("url")]
+    [InlineData("key")]
+    [InlineData("tls")]
+    [InlineData("disabled")]
+    public async Task RosterCacheIsBoundToTheConfiguredServerCredentialAndTransport(string change)
+    {
+        using var handler = new CountingHttpHandler();
+        handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson);
+        handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson.Replace("alice", "new-account", StringComparison.Ordinal));
+        var service = BuildService(handler);
+        Assert.Equal("alice", (await service.GetSeerrUsersAsync(TestContext.Current.CancellationToken))[0].DisplayName);
+        var config = Plugin.Instance!.Configuration;
+        if (change == "url") config.SeerrUrl = "https://replacement.example.com";
+        if (change == "key") config.SeerrApiKey = "replacement-key";
+        if (change == "tls") config.SeerrSkipCertificateValidation = true;
+        if (change == "disabled") config.SeerrApiKey = string.Empty;
+        var next = await service.GetSeerrUsersAsync(TestContext.Current.CancellationToken);
+        if (change == "disabled") Assert.Empty(next);
+        else Assert.Equal("new-account", next[0].DisplayName);
+        Assert.Equal(change == "disabled" ? 1 : 2, handler.RequestCount("/api/v1/user"));
+    }
+
+    [Fact]
+    public async Task LateOldRosterCannotServeANewSourceAndBackgroundWorkStaysSingleFlight()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var handler = new CountingHttpHandler { BeforeResponse = async (request, token) =>
+        {
+            if (request.RequestUri!.Host == "seerr.example.com") { entered.TrySetResult(); await release.Task.WaitAsync(token); }
+        } };
+        handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson);
+        handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson.Replace("alice", "new-account", StringComparison.Ordinal));
+        var service = BuildService(handler);
+        var old = service.GetSeerrUsersAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Plugin.Instance!.Configuration.SeerrUrl = "https://replacement.example.com";
+            var current = service.GetSeerrUsersAsync(TestContext.Current.CancellationToken);
+            Assert.False(current.IsCompleted);
+            Assert.Equal(1, handler.RequestCount("/api/v1/user"));
+            release.TrySetResult();
+            Assert.Empty(await old.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            Assert.Equal("new-account", (await current.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken))[0].DisplayName);
+            Assert.Equal("new-account", (await service.GetSeerrUsersAsync(TestContext.Current.CancellationToken))[0].DisplayName);
+            Assert.Equal(2, handler.RequestCount("/api/v1/user"));
+        }
+        finally
+        {
+            release.TrySetResult();
+            await old.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Theory]
+    [InlineData("url")]
+    [InlineData("key")]
+    [InlineData("tls")]
+    [InlineData("disabled")]
+    public async Task OwnershipCacheNeverCarriesTitlesAcrossArrConfigurationChanges(string change)
+    {
+        var config = Plugin.Instance!.Configuration;
+        config.RadarrInstances = [new ArrInstanceConfig { Url = "https://arr.example.com", ApiKey = "old-key" }];
+        var calls = 0;
+        var arr = new Mock<IArrIntegrationService>();
+        arr.Setup(value => value.GetRadarrMoviesAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new List<ArrMovie> { new() { TmdbId = ++calls == 1 ? 100 : 200 } });
+        using var handler = new CountingHttpHandler();
+        var service = BuildService(handler, arr);
+        Task<HashSet<(int, string)>> Read() => (Task<HashSet<(int, string)>>)typeof(SeerrDiscoveryService).GetMethod("GetCachedExclusionsCoreAsync", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(service, [config, true, TestContext.Current.CancellationToken])!;
+        Assert.Contains((100, "movie"), await Read());
+        if (change == "url") config.RadarrInstances[0].Url = "https://replacement.example.com";
+        if (change == "key") config.RadarrInstances[0].ApiKey = "replacement-key";
+        if (change == "tls") config.RadarrInstances[0].SkipCertificateValidation = true;
+        if (change == "disabled") config.RadarrInstances = [];
+        var current = await Read();
+        Assert.DoesNotContain((100, "movie"), current);
+        if (change != "disabled") Assert.Contains((200, "movie"), current);
+        Assert.Equal(change == "disabled" ? 1 : 2, calls);
+    }
+
+    [Fact]
+    public async Task SourceChangesWaitForTheOwnedBuildWithoutCancellingOthersOrMixingMovieAndTvKeys()
+    {
+        var oldReply = new TaskCompletionSource<List<ArrMovie>?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var arr = new Mock<IArrIntegrationService>();
+        arr.Setup(value => value.GetRadarrMoviesAsync("https://old.example.com", It.IsAny<string>(), false, It.IsAny<CancellationToken>())).Returns(oldReply.Task);
+        arr.Setup(value => value.GetRadarrMoviesAsync("https://new.example.com", It.IsAny<string>(), false, It.IsAny<CancellationToken>())).ReturnsAsync([new ArrMovie { TmdbId = 200 }]);
+        arr.Setup(value => value.GetSonarrSeriesAsync(It.IsAny<string>(), It.IsAny<string>(), false, It.IsAny<CancellationToken>())).ReturnsAsync([new ArrSeries { TmdbId = 100 }]);
+        using var handler = new CountingHttpHandler();
+        var service = BuildService(handler, arr);
+        var config = new PluginConfiguration { RadarrInstances = [new ArrInstanceConfig { Url = "https://old.example.com", ApiKey = "key" }], SonarrInstances = [new ArrInstanceConfig { Url = "https://sonarr.example.com", ApiKey = "key" }] };
+        typeof(Plugin).GetProperty(nameof(Plugin.Configuration))!.SetValue(Plugin.Instance, config);
+        Task<HashSet<(int, string)>> Read(CancellationToken token) => (Task<HashSet<(int, string)>>)typeof(SeerrDiscoveryService).GetMethod("GetCachedExclusionsCoreAsync", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(service, [config, true, token])!;
+        var old = Read(TestContext.Current.CancellationToken);
+        config.RadarrInstances[0].Url = "https://new.example.com";
+        var current = Read(TestContext.Current.CancellationToken);
+        using var cancel = new CancellationTokenSource();
+        var cancelled = Read(cancel.Token);
+        try
+        {
+            await cancel.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await cancelled.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            Assert.False(current.IsCompleted);
+            arr.Verify(value => value.GetRadarrMoviesAsync("https://new.example.com", It.IsAny<string>(), false, It.IsAny<CancellationToken>()), Times.Never);
+            oldReply.TrySetResult([new ArrMovie { TmdbId = 100 }]);
+            Assert.Contains((200, "movie"), await old.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            var result = await current.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.DoesNotContain((100, "movie"), result);
+            Assert.Contains((100, "tv"), result);
+            Assert.Contains((200, "movie"), result);
+            Assert.Equal(result.Order(), (await Read(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken)).Order());
+            arr.Verify(value => value.GetRadarrMoviesAsync("https://new.example.com", It.IsAny<string>(), false, It.IsAny<CancellationToken>()), Times.Once);
+        }
+        finally
+        {
+            oldReply.TrySetResult([new ArrMovie { TmdbId = 100 }]);
+            await Task.WhenAll(old, current).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+    }
 
     [Fact]
     public async Task GetSeerrUsersAsync_WarmCache_SecondCallMakesNoHttpRequest()
@@ -275,6 +551,7 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
 /// </summary>
 internal sealed class CountingHttpHandler : HttpMessageHandler
 {
+    internal Func<HttpRequestMessage, CancellationToken, Task>? BeforeResponse { get; init; }
     private readonly int _responseDelayMs;
     private readonly Lock _lock = new();
 
@@ -361,6 +638,7 @@ internal sealed class CountingHttpHandler : HttpMessageHandler
             }
         }
 
+        if (BeforeResponse is not null) await BeforeResponse(request, cancellationToken).ConfigureAwait(false);
         return new HttpResponseMessage(status)
         {
             Content = new StringContent(body)

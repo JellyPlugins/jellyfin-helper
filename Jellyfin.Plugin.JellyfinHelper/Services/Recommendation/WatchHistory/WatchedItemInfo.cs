@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 
@@ -76,6 +77,9 @@ public sealed class WatchedItemInfo
     /// <summary>Gets or sets captured provider certification, never the user's explicit rating or a target-age ban.</summary>
     public string? OfficialRating { get; set; }
 
+    /// <summary>Gets or sets an immutable title-level provider snapshot captured without any network request.</summary>
+    public Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataSnapshot? TitleMetadata { get; set; }
+
     /// <summary>
     ///     Gets or sets the genres associated with this item.
     ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
@@ -85,6 +89,9 @@ public sealed class WatchedItemInfo
         get => _genres;
         set => _genres = value ?? [];
     }
+
+    /// <summary>Gets or sets captured Jellyfin genres before provider fallback; null denotes unknown legacy provenance.</summary>
+    public IReadOnlyList<string>? LocalGenres { get; set; }
 
     /// <summary>
     ///     Gets or sets the production year.
@@ -230,12 +237,23 @@ public sealed class WatchedItemInfo
         set => _peopleWeights = value ?? [];
     }
 
+    /// <summary>Gets or sets detached own credits/countries with actual field acquisition; null is legacy unknown.</summary>
+    public Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.CreditMetadataSnapshot? Credits { get; set; }
+
+    /// <summary>Gets or sets detached parent-series credits/countries, never queried per episode.</summary>
+    public Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.CreditMetadataSnapshot? SeriesCredits { get; set; }
+
     /// <summary>
     ///     Checks if the user meaningfully interacted with this item.
     /// </summary>
-    /// <returns>True if played, favorited or has any playback.</returns>
+    /// <returns>True if played, favorited, explicitly rated or has any playback.</returns>
     public bool HasMeaningfulInteraction()
-        => Played || IsFavorite || PlayCount > 0 || PlaybackPositionTicks > 0;
+        => Played || IsFavorite || PlayCount > 0 || PlaybackPositionTicks > 0 || (UserRating is > 0 && double.IsFinite(UserRating.Value));
+
+    /// <summary>Checks for playback, a favorite or a genuinely positive explicit rating; dislikes alone never establish collaborative affinity.</summary>
+    /// <returns>Whether this row can supply positive collaborative overlap.</returns>
+    public bool HasPositiveInteraction()
+        => HasPlaybackActivity() || IsFavorite || (UserRating is > 5 && double.IsFinite(UserRating.Value));
 
     /// <summary>
     ///     Checks if the user actually played this item.
@@ -253,6 +271,7 @@ public sealed class WatchedItemInfo
         copy.UserRating = null;
         copy.LastPlayedDate = LastPlayedDate.HasValue ? DateTimeNormalization.ToUtc(LastPlayedDate.Value) : null;
         copy.Genres = Genres.ToArray();
+        copy.LocalGenres = LocalGenres?.ToArray();
         copy.PeopleNames = PeopleNames.ToArray();
         copy.PeopleWeights = PeopleWeights.ToArray();
         copy.WriterNames = WriterNames.ToArray();
@@ -272,6 +291,42 @@ public sealed class WatchedItemInfo
             copy.PlaybackAudioLanguage = null;
             copy.PlaybackSubtitleLanguage = null;
             copy.LanguagePlaybackDate = null;
+        }
+
+        return copy;
+    }
+
+    internal WatchedItemInfo AtMetadataCutoff(DateTime cutoff)
+    {
+        var metadata = TitleMetadata?.At(cutoff);
+        if (Credits is null && SeriesCredits is null && ProductionCountries.Count == 0
+            && ReferenceEquals(metadata, TitleMetadata))
+        {
+            // Training's detached rows are immutable. A metadata-free prefix
+            // needs no second row allocation for every historical cutoff.
+            return this;
+        }
+
+        var copy = (WatchedItemInfo)MemberwiseClone();
+        copy.Credits = Credits?.At(cutoff);
+        copy.SeriesCredits = SeriesCredits?.At(cutoff);
+        var countrySource = Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.CreditPreferenceProfile.Resolve(copy);
+        copy.ProductionCountries = countrySource?.ProductionCountries is { IsDefault: false } countries ? countries.ToArray() : [];
+        if (ReferenceEquals(metadata, TitleMetadata))
+        {
+            return copy;
+        }
+
+        copy.Genres = LocalGenres?.ToArray() ?? Genres.ToArray();
+        copy.TitleMetadata = metadata;
+        if (copy.Genres.Count == 0 && metadata?.GenreIds is { } ids)
+        {
+            copy.Genres = GenreNormalizer.Set(Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery.TmdbGenreMap.ToJellyfinGenres(ids)).ToArray();
+        }
+
+        if (copy.Genres.Count == 0 && metadata?.SourceGenres is { } labels)
+        {
+            copy.Genres = GenreNormalizer.Set(labels).ToArray();
         }
 
         return copy;

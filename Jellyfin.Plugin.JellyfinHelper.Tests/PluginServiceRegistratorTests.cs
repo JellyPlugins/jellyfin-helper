@@ -9,6 +9,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.FolderBrowser;
 using Jellyfin.Plugin.JellyfinHelper.Services.Link;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
@@ -17,13 +18,17 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
+using Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 using Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Playlists;
+using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Plugins;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -76,6 +81,35 @@ public class PluginServiceRegistratorTests : IDisposable
     {
         var sc = Register();
         Assert.Contains(sc, d => d.ServiceType == typeof(System.Net.Http.IHttpClientFactory));
+    }
+
+    [Fact]
+    public void RegisteredMetadataFactoriesResolveWithoutProvidersAndUseLiveLanguageAndTraktAvailability()
+    {
+        ControllerTestFactory.TeardownPluginInstance();
+        var sc = Register();
+        var serverConfiguration = new ServerConfiguration { PreferredMetadataLanguage = "de" };
+        var server = new Mock<IServerConfigurationManager>();
+        server.SetupGet(value => value.Configuration).Returns(serverConfiguration);
+        var available = true;
+        var sources = new Mock<ITraktPersonalSourceService>();
+        sources.Setup(value => value.IsAvailable(It.IsAny<Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration>())).Returns(() => available);
+        sc.AddSingleton(server.Object);
+        sc.AddSingleton(sources.Object);
+        sc.AddSingleton<IArrIntegrationService>(new Mock<IArrIntegrationService>().Object);
+        sc.AddSingleton<ISecretProtector>(TestMockFactory.CreateSecretProtector());
+        sc.AddSingleton<IPluginLogService>(TestMockFactory.CreatePluginLogService());
+        using var provider = sc.BuildServiceProvider();
+        var cache = provider.GetRequiredService<TitleMetadataCache>();
+        var collector = provider.GetRequiredService<SupplementaryTitleMetadataService>();
+        var config = new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { TraktSourcingEnabled = true };
+        Assert.Equal("de", cache.MetadataLanguage);
+        Assert.Equal("de", collector.MetadataLanguage());
+        Assert.True(cache.TraktMetadataAvailable(config));
+        available = false;
+        serverConfiguration.PreferredMetadataLanguage = "en";
+        Assert.False(cache.TraktMetadataAvailable(config));
+        Assert.Equal("en", collector.MetadataLanguage());
     }
 
     // Every interface the controllers depend on must be registered as Singleton.
@@ -134,6 +168,7 @@ public class PluginServiceRegistratorTests : IDisposable
     [InlineData(typeof(NeuralScoringStrategy))]
     [InlineData(typeof(EnsembleScoringStrategy))]
     [InlineData(typeof(DiscoveryCacheService))]
+    [InlineData(typeof(MediaStatisticsUserDataSource))]
     public void RegisterServices_RegistersConcreteStrategy(Type concreteType)
     {
         var sc = Register();
@@ -184,12 +219,80 @@ public class PluginServiceRegistratorTests : IDisposable
         sc.AddSingleton(new Mock<IPlaylistManager>().Object);
         sc.AddSingleton(new Mock<IUserManager>().Object);
         sc.AddSingleton(new Mock<ILibraryManager>().Object);
+        sc.AddSingleton(new Mock<IUserDataManager>().Object);
+        sc.AddSingleton(new Mock<Microsoft.EntityFrameworkCore.IDbContextFactory<Jellyfin.Database.Implementations.JellyfinDbContext>>().Object);
+        sc.AddSingleton(TestMockFactory.CreateAppPaths().Object);
 
         var provider = sc.BuildServiceProvider(validateScopes: true);
 
         var service = provider.GetService<IRecommendationPlaylistService>();
         Assert.NotNull(service);
         Assert.IsType<RecommendationPlaylistService>(service);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RegisteredStatisticsUsesTheLocalUserDataSourceWithoutMakingUserServicesOrProvidersMandatory(bool usersAvailable)
+    {
+        var sc = Register();
+        sc.AddLogging();
+        var library = TestMockFactory.CreateLibraryManager();
+        library.Setup(value => value.GetVirtualFolders()).Returns([]);
+        library.Setup(value => value.GetItemList(It.IsAny<MediaBrowser.Controller.Entities.InternalItemsQuery>())).Returns([]);
+        var users = new Mock<IUserManager>();
+        users.Setup(value => value.GetUsers()).Returns(Array.Empty<Jellyfin.Database.Implementations.Entities.User>().AsQueryable());
+        sc.AddSingleton(library.Object);
+        sc.AddSingleton(TestMockFactory.CreateFileSystem().Object);
+        sc.AddSingleton(TestMockFactory.CreateCleanupConfigHelper().Object);
+        sc.AddSingleton<IPluginLogService>(TestMockFactory.CreatePluginLogService());
+        var ownership = new Mock<IArrOrphanProtectionService>(MockBehavior.Strict);
+        sc.AddSingleton(ownership.Object);
+        if (usersAvailable)
+        {
+            sc.AddSingleton(users.Object);
+            sc.AddSingleton(new Mock<IUserDataManager>().Object);
+        }
+
+        using var provider = sc.BuildServiceProvider(validateScopes: true);
+        var statistics = Assert.IsType<MediaStatisticsService>(provider.GetRequiredService<IMediaStatisticsService>());
+        var userData = provider.GetRequiredService<MediaStatisticsUserDataSource>();
+        Assert.Same(userData, provider.GetRequiredService<MediaStatisticsUserDataSource>());
+        Assert.Same(statistics, provider.GetRequiredService<IMediaStatisticsService>());
+        Assert.Equal(usersAvailable, userData.IsAvailable);
+        Assert.All(typeof(MediaStatisticsService).GetConstructors(), constructor => Assert.InRange(constructor.GetParameters().Length, 1, 7));
+        Assert.Empty(statistics.CalculateStatistics().Libraries);
+        users.Verify(value => value.GetUsers(), usersAvailable ? Times.Once() : Times.Never());
+        ownership.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RegisteredWatchHistoryUsesTheSameSingletonMetadataCache(bool pluginAvailable)
+    {
+        ControllerTestFactory.TeardownPluginInstance();
+        if (pluginAvailable) ControllerTestFactory.InitializePluginInstance();
+        var sc = Register();
+        sc.AddLogging();
+        sc.AddSingleton(new Mock<ILibraryManager>().Object);
+        sc.AddSingleton(new Mock<IUserManager>().Object);
+        sc.AddSingleton(new Mock<IUserDataManager>().Object);
+        sc.AddSingleton(new Mock<ILinkedChildrenService>().Object);
+        sc.AddSingleton(TestMockFactory.CreateAppPaths().Object);
+        sc.AddSingleton(new Mock<IDiscoveryFeedbackStore>().Object);
+        sc.AddSingleton<IFileSystem>(new System.IO.Abstractions.TestingHelpers.MockFileSystem());
+        using var provider = sc.BuildServiceProvider(validateScopes: true);
+        var cache = provider.GetRequiredService<TitleMetadataCache>();
+        var history = Assert.IsType<WatchHistoryService>(provider.GetRequiredService<IWatchHistoryService>());
+        Assert.Same(cache, history.TitleMetadataCache);
+        Assert.Same(history, provider.GetRequiredService<IWatchHistoryService>());
+        var detector = provider.GetRequiredService<Jellyfin.Plugin.JellyfinHelper.Services.VirtualItemDetector>();
+        Assert.Same(detector, history.VirtualItems);
+        Assert.True(history.UseUserAccessQueries);
+        var engine = Assert.IsType<Engine>(provider.GetRequiredService<IRecommendationEngine>());
+        Assert.Same(detector, engine.VirtualItems);
+        Assert.Equal(pluginAvailable, cache.Save());
     }
 
     [Fact]

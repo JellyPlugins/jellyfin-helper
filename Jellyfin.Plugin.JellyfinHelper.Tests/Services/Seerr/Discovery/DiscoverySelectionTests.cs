@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Xunit;
 
@@ -12,6 +13,35 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 public sealed class DiscoverySelectionTests
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault };
+
+    [Theory]
+    [InlineData(.2, 1, 3)]
+    [InlineData(.5, 4, 6)]
+    [InlineData(.8, 7, 9)]
+    public void MediaBalanceChangesMembershipWithoutBanningTheMinorityOrChangingRecordedScores(double share, int minimumSeries, int maximumSeries)
+    {
+        var candidates = Enumerable.Range(1, 40).Select(id => Candidate(id, id <= 20 ? .81 : .8)).ToArray();
+        foreach (var item in candidates) item.MediaType = item.TmdbId <= 20 ? "tv" : "movie";
+        var original = JsonSerializer.Serialize(candidates);
+        var selected = DiscoverySelection.Select(candidates, 10, targetSeriesShare: share);
+        Assert.InRange(selected.Count(item => item.MediaType == "tv"), minimumSeries, maximumSeries);
+        Assert.Equal(10, selected.Count);
+        Assert.Equal(selected.OrderByDescending(item => item.Score), selected);
+        Assert.Equal(original, JsonSerializer.Serialize(candidates));
+        Assert.Equal(candidates.Take(10), DiscoverySelection.Select(candidates, 10, preserveSourceRank: true, targetSeriesShare: share));
+    }
+
+    [Fact]
+    public void AFormatTargetCannotMakeIrrelevantOrIncompatibleCandidatesEligible()
+    {
+        var candidates = Enumerable.Range(1, 20).Select(id => Candidate(id, .8)).ToList();
+        foreach (var item in candidates) item.MediaType = "movie";
+        candidates.Add(new DiscoveryRecommendation { TmdbId = 100, MediaType = "tv", Score = .01, IsPersonalized = true });
+        candidates.Add(new DiscoveryRecommendation { TmdbId = 101, MediaType = "tv", Score = 1, IsPersonalized = true, ScoringFeatures = new CandidateFeatures { ContentFamilyMismatch = .5 } });
+        var selected = DiscoverySelection.Select(candidates, 10, targetSeriesShare: .8);
+        Assert.Equal(10, selected.Count);
+        Assert.All(selected, item => Assert.Equal("movie", item.MediaType));
+    }
 
     [Fact]
     public void Select_DoesNotFillPersonalListsWithIrrelevantTitles()
@@ -55,6 +85,55 @@ public sealed class DiscoverySelectionTests
     {
         var candidates = Enumerable.Range(1, 5).Select(id => Candidate(id, 0.01, 99)).ToArray();
         Assert.Equal([1, 2, 3], DiscoverySelection.Select(candidates, 3, preserveSourceRank: true).Select(item => item.TmdbId));
+    }
+
+    [Fact]
+    public void OwnSelectionAndBackfillNeverReintroduceACapturedFamilyMismatch()
+    {
+        var unrelated = Candidate(1, 1);
+        unrelated.ScoringFeatures = new CandidateFeatures { ContentFamilyMismatch = .5 };
+        var matched = Candidate(2, .6);
+        matched.ScoringFeatures = new CandidateFeatures { ContentFamilyMismatch = 0 };
+        var unknown = Candidate(3, .5);
+        Assert.Equal([2, 3], DiscoverySelection.Select([unrelated, matched, unknown], 20).Select(item => item.TmdbId));
+        Assert.Equal(.5, unrelated.ScoringFeatures.ContentFamilyMismatch);
+        Assert.Equal([2, 3], DiscoverySelection.Select([unrelated, matched, unknown], 20, preserveSourceRank: true).Select(item => item.TmdbId));
+        Assert.Equal([.6, .5], DiscoverySelection.Select([unrelated, matched, unknown], 20, preserveSourceRank: true).Select(item => item.Score));
+    }
+
+    [Fact]
+    public void LikelyMismatchesAndInvalidContextRemainEligibleForFallbackSelection()
+    {
+        var likely = Candidate(1, .6);
+        likely.ScoringFeatures = new CandidateFeatures { ContentFamilyMismatch = .25 };
+        var invalid = Candidate(2, .5);
+        invalid.ScoringFeatures = new CandidateFeatures { ContentFamilyMismatch = double.NaN };
+        Assert.Equal([1, 2], DiscoverySelection.Select([likely, invalid], 5).Select(item => item.TmdbId));
+    }
+
+    [Fact]
+    public void CoherentMatchesPrecedeGenericPopularityWithoutChangingTheirModelScores()
+    {
+        var popular = Candidate(1, .99);
+        var related = Candidate(2, .62);
+        related.ScoringFeatures = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7, ContentFitSupport = .78 };
+        var selected = Assert.Single(DiscoverySelection.Select([popular, related], 1));
+        Assert.Equal(2, selected.TmdbId);
+        Assert.Equal(.62, selected.Score);
+        Assert.Equal(1, Assert.Single(DiscoverySelection.Select([popular, related], 1, preserveSourceRank: true)).TmdbId);
+    }
+
+    [Fact]
+    public void SupportedSecondaryTasteGetsAPlaceBeforeRepeatedPrimaryTasteCandidates()
+    {
+        var primary = Guid.NewGuid();
+        var secondary = Guid.NewGuid();
+        var candidates = Enumerable.Range(1, 10).Select(id => Candidate(id, .95 - (id * .01))).ToList();
+        foreach (var candidate in candidates) candidate.ScoringFeatures = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .8, ContentFitSupport = .8, ContentTasteKey = primary };
+        var different = Candidate(11, .62);
+        different.ScoringFeatures = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7, ContentFitSupport = .8, ContentTasteKey = secondary };
+        candidates.Add(different);
+        Assert.Contains(DiscoverySelection.Select(candidates, 3), candidate => candidate.TmdbId == 11);
     }
 
     [Fact]

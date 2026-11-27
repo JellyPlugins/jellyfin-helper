@@ -626,7 +626,7 @@ describe('ensemble diagnostics rendering variants', () => {
     const h = host();
     ui.renderEnsembleDiagnostics(h, {
       Available: true, Alpha: 0.5, NeuralBeta: 0, NeuralEnabled: false,
-      IsPerUser: true, Trend: 'Degrading', TrainingExampleCount: 0,
+      IsPerUser: true, Trend: 'Degrading', TrainingExampleCount: 0, FeatureDerivationStatus: 'Current',
     });
     expect(h.textContent).toContain('this user');
     expect(h.textContent).toContain('Degrading');

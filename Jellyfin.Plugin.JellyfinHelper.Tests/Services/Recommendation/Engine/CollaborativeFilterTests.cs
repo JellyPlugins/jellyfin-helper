@@ -12,6 +12,51 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 public class CollaborativeFilterTests
 {
     [Fact]
+    public void IdenticalPowerUserHasNoUnseenEndorsementsButStillDefinesSparseNeighbourTrust()
+    {
+        var shared = Enumerable.Range(0, 20).Select(_ => Guid.NewGuid()).ToArray();
+        var target = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = new Collection<WatchedItemInfo>(shared.Select(id => new WatchedItemInfo { ItemId = id, Played = true }).ToList()) };
+        var identical = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = new Collection<WatchedItemInfo>(shared.Select(id => new WatchedItemInfo { ItemId = id, Played = true }).ToList()) };
+        Assert.Empty(CollaborativeFilter.BuildCollaborativeMap(target, [target, identical]));
+
+        var unseen = Guid.NewGuid();
+        var sparse = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = new Collection<WatchedItemInfo>(shared.Take(3).Append(unseen).Select(id => new WatchedItemInfo { ItemId = id, Played = true }).ToList()) };
+        var actual = CollaborativeFilter.BuildCollaborativeMap(target, [target, identical, sparse]);
+        var expected = (3.0 / 21) * Math.Sqrt(1 - Math.Exp(-4.0 / EngineConstants.CollaborativeTrustScale));
+        Assert.Equal(unseen, Assert.Single(actual).Key);
+        Assert.Equal(expected, actual[unseen], 12);
+    }
+
+    [Theory]
+    [InlineData(2, false)]
+    [InlineData(5, false)]
+    [InlineData(8, true)]
+    public void RatingOnlyDislikesRemainServingEngagementButNeverPositiveCollaborativeOverlap(double rating, bool positive)
+    {
+        var item = Guid.NewGuid();
+        var row = new WatchedItemInfo { ItemId = item, ItemType = "Movie", UserRating = rating };
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [row] };
+        Assert.True(row.HasMeaningfulInteraction());
+        Assert.Equal(positive, row.HasPositiveInteraction());
+        Assert.Equal(positive, CollaborativeFilter.PrecomputeUserWatchSets([profile])[profile.UserId].Contains(item));
+    }
+
+    [Fact]
+    public void AHighlyOverlappingNeighboursRatingOnlyDislikeCannotCreatePositiveCoOccurrence()
+    {
+        var overlap = Enumerable.Range(0, 20).Select(_ => Guid.NewGuid()).ToArray();
+        var disliked = Guid.NewGuid();
+        var liked = Guid.NewGuid();
+        var target = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = new Collection<WatchedItemInfo>(overlap.Select(item => new WatchedItemInfo { ItemId = item, Played = true }).ToList()) };
+        var neighbour = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = new Collection<WatchedItemInfo>(overlap.Select(item => new WatchedItemInfo { ItemId = item, Played = true }).ToList()) };
+        neighbour.WatchedItems.Add(new() { ItemId = disliked, ItemType = "Movie", UserRating = 2 });
+        neighbour.WatchedItems.Add(new() { ItemId = liked, ItemType = "Movie", UserRating = 8 });
+        var result = CollaborativeFilter.BuildCollaborativeMap(target, [target, neighbour]);
+        Assert.DoesNotContain(disliked, result.Keys);
+        Assert.True(result[liked] > 0);
+    }
+
+    [Fact]
     public void PrecomputeUserWatchSets_IncludesPlayedItems()
     {
         var itemId = Guid.NewGuid();

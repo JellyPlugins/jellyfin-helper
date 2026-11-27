@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -53,16 +54,40 @@ internal sealed class SeerrMediaDetailResponse
     public string? Overview { get; set; }
 
     /// <summary>
-    ///     Gets or sets the average vote score. Zero when omitted.
+    ///     Gets or sets observed rating, preserving unavailable metadata separately from zero.
     /// </summary>
     [JsonPropertyName("voteAverage")]
-    public double VoteAverage { get; set; }
+    public double? VoteAverageValue
+    {
+        get;
+        set => field = value is { } number && double.IsFinite(number) && number >= 0 ? number : null;
+    }
+
+    /// <summary>Gets or sets the compatible numeric rating projection.</summary>
+    [JsonIgnore]
+    public double VoteAverage { get => VoteAverageValue.GetValueOrDefault(); set => VoteAverageValue = value; }
+
+    /// <summary>Gets a value indicating whether a finite non-negative rating was supplied.</summary>
+    [JsonIgnore]
+    public bool HasRatingMetadata => VoteAverageValue.HasValue;
 
     /// <summary>
-    ///     Gets or sets the popularity score. Zero when omitted.
+    ///     Gets or sets observed popularity, preserving unavailable metadata separately from zero.
     /// </summary>
     [JsonPropertyName("popularity")]
-    public double Popularity { get; set; }
+    public double? PopularityValue
+    {
+        get;
+        set => field = value is { } number && double.IsFinite(number) && number >= 0 ? number : null;
+    }
+
+    /// <summary>Gets or sets the compatible numeric popularity projection.</summary>
+    [JsonIgnore]
+    public double Popularity { get => PopularityValue.GetValueOrDefault(); set => PopularityValue = value; }
+
+    /// <summary>Gets a value indicating whether finite non-negative popularity was supplied.</summary>
+    [JsonIgnore]
+    public bool HasPopularityMetadata => PopularityValue.HasValue;
 
     /// <summary>
     ///     Gets or sets whether this is adult content. Null when the endpoint omits the flag;
@@ -93,6 +118,26 @@ internal sealed class SeerrMediaDetailResponse
     [JsonPropertyName("productionCompanies")]
     public List<GenreRef>? ProductionCompanies { get; set; }
 
+    /// <summary>Gets or sets separately identified broadcast networks, never production-company evidence.</summary>
+    [JsonPropertyName("networks")]
+    public List<GenreRef>? Networks { get; set; }
+
+    /// <summary>Gets or sets the original language; it does not establish available audio tracks.</summary>
+    [JsonPropertyName("originalLanguage")]
+    public string? OriginalLanguage { get; set; }
+
+    /// <summary>Gets or sets the TV narrative format (for example Reality or Scripted).</summary>
+    [JsonPropertyName("type")]
+    public string? SeriesType { get; set; }
+
+    /// <summary>Gets or sets series origin-country codes, separate from production countries.</summary>
+    [JsonPropertyName("originCountry")]
+    public List<string>? OriginCountry { get; set; }
+
+    /// <summary>Gets or sets production-country references.</summary>
+    [JsonPropertyName("productionCountries")]
+    public List<CountryRef>? ProductionCountries { get; set; }
+
     /// <summary>Gets or sets the movie collection; an explicit null means the provider confirmed no collection.</summary>
     [JsonPropertyName("collection")]
     public GenreRef? Collection
@@ -107,11 +152,16 @@ internal sealed class SeerrMediaDetailResponse
 
     /// <summary>Gets a value indicating whether collection membership was stated or its absence confirmed by complete movie details. Seerr omits the field for standalone movies; partial responses stay unknown.</summary>
     [JsonIgnore]
-    public bool HasCollectionMetadata => _collectionPropertyPresent || HasCompleteMovieDetails;
+    public bool HasCollectionMetadata => _collectionPropertyPresent ? Collection is null || Collection.Id > 0 : HasCompleteMovieDetails;
 
     private bool HasCompleteMovieDetails => Id > 0 && !string.IsNullOrWhiteSpace(Title) && ReleaseDate is not null
-        && Adult.HasValue && Genres is not null && Credits is not null && Keywords is not null
-        && ProductionCompanies is not null && Releases.ValueKind == JsonValueKind.Object;
+        && Adult.HasValue && Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataSnapshot.CaptureGenreIds(Genres).HasValue
+        && Credits is { Cast: { } cast, Crew: { } crew }
+        && cast.All(person => person is not null && person.Id > 0 && !string.IsNullOrWhiteSpace(person.Name))
+        && crew.All(person => person is not null && person.Id > 0 && !string.IsNullOrWhiteSpace(person.Name) && !string.IsNullOrWhiteSpace(person.Job))
+        && Keywords is not null && Keywords.All(keyword => keyword is not null && keyword.Id > 0 && !string.IsNullOrWhiteSpace(keyword.Name))
+        && Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.ProducerEvidence.Capture(ProductionCompanies, Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.ProducerEvidence.CompanyKind).HasValue
+        && Releases.ValueKind == JsonValueKind.Object;
 
     /// <summary>
     ///     A single genre entry in a Seerr detail response.
@@ -129,5 +179,13 @@ internal sealed class SeerrMediaDetailResponse
         /// </summary>
         [JsonPropertyName("name")]
         public string? Name { get; set; }
+    }
+
+    /// <summary>A production country in the documented Seerr/TMDb response shape.</summary>
+    public sealed class CountryRef
+    {
+        /// <summary>Gets or sets the ISO country code.</summary>
+        [JsonPropertyName("iso_3166_1")]
+        public string? Code { get; set; }
     }
 }

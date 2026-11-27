@@ -73,7 +73,7 @@ internal static class ExternalCandidateFeatureBuilder
             preferredPeople = new HashSet<string>(preferredPeople, StringComparer.OrdinalIgnoreCase);
         }
 
-        var genres = GenreNormalizer.Set(TmdbGenreMap.ToJellyfinGenres(candidate.GenreIds)).ToList();
+        var genres = ResolveGenres(candidate);
 
         // Genre-engagement package, computed on the same basis as discovery training so the model
         // scores the signal it was trained on. External candidates are never in the watch set, so no
@@ -87,10 +87,12 @@ internal static class ExternalCandidateFeatureBuilder
 
         var features = new CandidateFeatures
         {
+            FeatureDerivationVersion = CandidateFeatures.CurrentFeatureDerivationVersion,
             IsExternalCandidate = true,
             HasGenreEvidence = genres.Count > 0 && genrePreferences.Count > 0,
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(genres, genrePreferences),
-            CombinedCriticScore = Math.Clamp(candidate.VoteAverage / 10.0, 0.0, 1.0),
+            CombinedCriticScore = candidate.HasRatingMetadata ? Math.Clamp(candidate.VoteAverage / 10.0, 0.0, 1.0) : 0.5,
+            HasRatingMetadata = candidate.HasRatingMetadata,
             RecencyScore =
                 candidate.EffectiveReleaseDate is { } releaseDate
                 && releaseDate.Year is >= 1 and <= 9999
@@ -102,6 +104,7 @@ internal static class ExternalCandidateFeatureBuilder
             GenreCount = genres.Count,
             IsSeries = string.Equals(candidate.MediaType, "tv", StringComparison.OrdinalIgnoreCase),
             PopularityScore = NormalizePopularity(candidate.Popularity),
+            HasPopularityMetadata = candidate.HasPopularityMetadata,
             PeopleSimilarity = ComputePeopleSimilarity(candidate, preferredPeople),
             HasPeopleMetadata = candidate.KnownPeople is not null,
             CollaborativeScore = 0.5,
@@ -136,10 +139,28 @@ internal static class ExternalCandidateFeatureBuilder
         features.GenreAffinityGap = affinityGap;
 
         ApplyAvailableMetadata(features, candidate, userContext, context.WatchedCollections);
-        userContext.ContentFit.Apply(features, genres, candidate.KnownKeywords, null, genrePreferences);
+        if (candidate.Credits is { } credits)
+        {
+            var profile = userContext.CreditProfile;
+            var preferences = profile is not null && profile.WatchedItems.Any(row => row.Credits is not null || row.SeriesCredits is not null)
+                ? CreditPreferenceProfile.Create(profile, new Dictionary<Guid, CreditMetadataSnapshot> { [Guid.Empty] = credits })
+                : CreditPreferenceProfile.Legacy(preferredPeople, credits);
+            preferences.Apply(features, credits);
+        }
+
+        userContext.ContentFit.Apply(features, genres, candidate.KnownKeywords, null, genrePreferences, candidate.TitleMetadata);
         ApplyMeanImputation(features, context.FeatureMeans);
 
         return features;
+    }
+
+    /// <summary>Uses mapped provider IDs first, with the same source-label fallback for scoring, display and reasons.</summary>
+    /// <param name="candidate">Actual candidate genre evidence.</param>
+    /// <returns>Canonical candidate genres; unknown remains empty.</returns>
+    internal static List<string> ResolveGenres(TmdbDiscoverItem candidate)
+    {
+        var mapped = GenreNormalizer.Set(TmdbGenreMap.ToJellyfinGenres(candidate.GenreIds)).ToList();
+        return mapped.Count > 0 ? mapped : GenreNormalizer.Set(candidate.SourceGenres).ToList();
     }
 
     /// <summary>
@@ -164,6 +185,18 @@ internal static class ExternalCandidateFeatureBuilder
         if (featureMeans is null || featureMeans.Count != CandidateFeatures.FeatureCount)
         {
             return;
+        }
+
+        if (features.HasRatingMetadata == false)
+        {
+            var mean = featureMeans[(int)FeatureIndex.CombinedCriticScore];
+            features.CombinedCriticScore = double.IsFinite(mean) ? Math.Clamp(mean, 0, 1) : 0.5;
+        }
+
+        if (features.HasPopularityMetadata == false)
+        {
+            var mean = featureMeans[(int)FeatureIndex.PopularityScore];
+            features.PopularityScore = double.IsFinite(mean) ? Math.Clamp(mean, 0, 1) : 0.0;
         }
 
         features.CollaborativeScore = featureMeans[(int)FeatureIndex.CollaborativeScore];
@@ -197,8 +230,16 @@ internal static class ExternalCandidateFeatureBuilder
         features.ProductionLocationAffinity = featureMeans[(int)FeatureIndex.ProductionLocationAffinity];
         features.InheritedTagSimilarity = featureMeans[(int)FeatureIndex.InheritedTagSimilarity];
         features.SeriesCompletability = featureMeans[(int)FeatureIndex.SeriesCompletability];
-        features.WriterAffinity = featureMeans[(int)FeatureIndex.WriterAffinity];
-        features.BillingWeightedPeople = featureMeans[(int)FeatureIndex.BillingWeightedPeople];
+        if (!features.IsExternalFeatureKnown(FeatureIndex.WriterAffinity))
+        {
+            features.WriterAffinity = featureMeans[(int)FeatureIndex.WriterAffinity];
+        }
+
+        if (!features.IsExternalFeatureKnown(FeatureIndex.BillingWeightedPeople))
+        {
+            features.BillingWeightedPeople = featureMeans[(int)FeatureIndex.BillingWeightedPeople];
+        }
+
         features.GenreStudioIdfPrior = featureMeans[(int)FeatureIndex.GenreStudioIdfPrior];
     }
 
@@ -213,12 +254,23 @@ internal static class ExternalCandidateFeatureBuilder
             profile is null ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) : PreferenceBuilder.BuildStudioPreferenceSet(profile, []),
             profile is null ? null : ContentScoring.BuildGenreEngagementContext(profile))
         {
-            ContentFit = ContentFitProfile.Create(profile)
+            ContentFit = ContentFitProfile.Create(profile),
+            CreditProfile = profile
         };
     }
 
     private static void ApplyAvailableMetadata(CandidateFeatures features, TmdbDiscoverItem candidate, UserContext userContext, IReadOnlyDictionary<int, int>? watchedCollections)
     {
+        if (candidate.HasRatingMetadata)
+        {
+            features.MarkExternalFeatureKnown(FeatureIndex.CombinedCriticScore);
+        }
+
+        if (candidate.HasPopularityMetadata)
+        {
+            features.MarkExternalFeatureKnown(FeatureIndex.PopularityScore);
+        }
+
         if (candidate.KnownPeople is not null)
         {
             features.MarkExternalFeatureKnown(FeatureIndex.PeopleSimilarity);
@@ -242,9 +294,9 @@ internal static class ExternalCandidateFeatureBuilder
             features.MarkExternalFeatureKnown(FeatureIndex.TagSimilarity);
         }
 
-        if (candidate.KnownStudios is not null)
+        if (ProducerEvidence.Keys(candidate.TitleMetadata) is { } producers)
         {
-            features.StudioMatch = candidate.KnownStudios.Any(userContext.Studios.Contains);
+            features.StudioMatch = producers.Any(userContext.Studios.Contains);
             features.MarkExternalFeatureKnown(FeatureIndex.StudioMatch);
         }
     }
@@ -310,6 +362,9 @@ internal static class ExternalCandidateFeatureBuilder
     {
         /// <summary>Gets detached, title-balanced semantic evidence without guessing absent provider keywords.</summary>
         public ContentFitProfile ContentFit { get; init; } = ContentFitProfile.Empty;
+
+        /// <summary>Gets current detached personal credits for identity-safe external affinity.</summary>
+        public UserWatchProfile? CreditProfile { get; init; }
     }
 
     /// <summary>Inputs shared between pre-scoring and final scoring; only genre-derived values change after alias updates.</summary>

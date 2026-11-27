@@ -17,6 +17,96 @@ public sealed class TrainingPipelineIntegrityTests
     private static readonly DateTime Prediction = new(2026, 11, 10, 12, 0, 0, DateTimeKind.Utc);
 
     [Fact]
+    public void DiscoveryPhaseCountsDoNotRewriteOrDependOnALegacySavedExternalFeatureFlag()
+    {
+        var user = Guid.NewGuid();
+        var saved = new CandidateFeatures { GenreSimilarity = .7, IsExternalCandidate = false };
+        var feedback = new DiscoveryFeedbackResult { UserId = user, Entries = [new DiscoveryFeedbackEntry
+        {
+            TmdbId = 700, MediaType = "tv", ShownAtUtc = DateTime.UtcNow.AddDays(-9), ImpressionAtUtc = DateTime.UtcNow.AddDays(-8), ScoringFeatures = saved
+        }] };
+        var built = TrainingDataBuilder.BuildExamples([], [new UserWatchProfile { UserId = user }], [feedback], TestContext.Current.CancellationToken);
+        var passive = Assert.Single(built.Examples);
+        Assert.Equal(1, built.DiscoveryCount);
+        Assert.True(passive.IsPassiveSample);
+        Assert.False(passive.IsObserved);
+        Assert.False(passive.Features.IsExternalCandidate);
+        Assert.Equal(saved.ToVector(), passive.Features.ToVector());
+        Assert.False(saved.IsExternalCandidate);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void UnfinishedLibraryPlaybackSuppressesTheSameTitlesPassiveVisibilitySample(bool engaged)
+    {
+        var user = Guid.NewGuid();
+        var item = Guid.NewGuid();
+        var predicted = DateTime.UtcNow.AddDays(-12);
+        var result = new RecommendationResult { UserId = user, GeneratedAt = predicted, Recommendations = [new() { ItemId = item, ItemType = "Movie", TmdbId = 700, DateCreated = predicted.AddDays(-1), ScoringFeatures = new CandidateFeatures { GenreSimilarity = .7, HasGenreEvidence = true } }] };
+        var profile = new UserWatchProfile { UserId = user };
+        if (engaged) profile.WatchedItems.Add(new() { ItemId = item, ItemType = "Movie", TmdbId = 700, Played = false, PlaybackPositionTicks = 80, RuntimeTicks = 100, LastPlayedDate = predicted.AddDays(1) });
+        var feedback = new DiscoveryFeedbackResult { UserId = user, Entries = [new() { TmdbId = 700, MediaType = "movie", ShownAtUtc = predicted, ImpressionAtUtc = predicted.AddDays(1), ScoringFeatures = new CandidateFeatures { GenreSimilarity = .7, IsExternalCandidate = true } }] };
+        var examples = TrainingDataBuilder.BuildExamples([result], [profile], [feedback], TestContext.Current.CancellationToken).Examples;
+        Assert.Equal(!engaged, examples.Any(example => example.IsPassiveSample));
+        Assert.DoesNotContain(profile.WatchedItems, row => row.Played);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ChoosingTheFifthPlaylistTitleIsRelativeEvidenceAgainstTheUnchosenFirstNotAnObservedDislike(bool completed)
+    {
+        var user = Guid.NewGuid();
+        var listed = Enumerable.Range(1, 5).Select(rank => new RecommendedItem
+        {
+            ItemId = Guid.NewGuid(), ItemType = "Movie", Score = 1 - rank * .1, DateCreated = Prediction.AddDays(-1),
+            ScoringFeatures = new CandidateFeatures { GenreSimilarity = 1 - rank * .1, HasGenreEvidence = true }
+        }).ToArray();
+        while (new TrainingExample { Features = new CandidateFeatures(), HasStableObservationId = true, ObservationId = TrainingExample.CreateLibraryObservationId(user, listed[4].ItemId) }.IsPermanentHoldout)
+        {
+            listed[4].ItemId = Guid.NewGuid();
+        }
+
+        var firstVector = listed[0].ScoringFeatures!.ToVector();
+        var result = new RecommendationResult { UserId = user, GeneratedAt = Prediction, Recommendations = new Collection<RecommendedItem>(listed), TrainingContrasts = [] };
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = [new WatchedItemInfo
+        {
+            ItemId = listed[4].ItemId, ItemType = "Movie", Played = completed, PlaybackPositionTicks = completed ? 0 : 80,
+            RuntimeTicks = 100, LastPlayedDate = Prediction.AddDays(1), DateCreated = Prediction.AddDays(-1)
+        }] };
+        var built = TrainingDataBuilder.BuildExamples([result], [profile], Prediction.AddDays(3), TestContext.Current.CancellationToken);
+        var firstId = TrainingExample.CreateLibraryObservationId(user, listed[0].ItemId);
+        Assert.DoesNotContain(built.Examples, example => example.ObservationId == firstId && example.IsObserved);
+        if (completed)
+        {
+            var first = Assert.Single(built.Examples, example => example.ObservationId == firstId);
+            Assert.True(first.IsContrastSample);
+            Assert.False(first.IsPassiveSample);
+            Assert.Equal(firstVector, first.Features.ToVector());
+            Assert.Equal(Prediction, first.GeneratedAtUtc);
+            var chosen = Assert.Single(built.Examples, example => example.IsObserved);
+            Assert.NotNull(chosen.Choice);
+            Assert.Equal(listed[4].ItemId, chosen.Choice.ChosenItemId);
+            Assert.Contains(chosen.Choice.Alternatives, alternative => alternative.ObservationId == firstId);
+            Assert.InRange(built.Examples.Where(example => example.IsContrastSample).Sum(example => example.SampleWeight), .24, .26);
+
+            profile.WatchedItems.Add(new WatchedItemInfo { ItemId = listed[0].ItemId, ItemType = "Movie", Played = true, LastPlayedDate = Prediction.AddDays(2), DateCreated = Prediction.AddDays(-1) });
+            var afterAlsoWatchingFirst = TrainingDataBuilder.BuildExamples([result], [profile], Prediction.AddDays(3), TestContext.Current.CancellationToken);
+            Assert.DoesNotContain(afterAlsoWatchingFirst.Examples, example => example.ObservationId == firstId && example.IsContrastSample);
+        }
+        else
+        {
+            Assert.DoesNotContain(built.Examples, example => example.IsContrastSample || example.Choice is not null);
+            Assert.Empty(TrainingMath.FilterEffectiveExamples(built.Examples, DateTime.UtcNow, .01));
+        }
+
+        Assert.Equal(firstVector, listed[0].ScoringFeatures!.ToVector());
+        Assert.Equal(.9, listed[0].Score);
+        Assert.All(profile.WatchedItems, item => Assert.Null(item.UserRating));
+    }
+
+    [Fact]
     public void HistoricalProfile_DoesNotBorrowTargetFutureOrUndatedPreferences()
     {
         var past = Watch(Guid.NewGuid(), Prediction.AddDays(-1), ["Drama"]);
@@ -155,7 +245,7 @@ public sealed class TrainingPipelineIntegrityTests
     }
 
     [Fact]
-    public void LegacyCachedLibraryPrediction_UsesLiveProviderIdentityForItsContrastPartition()
+    public void LegacyCachedLibraryPrediction_UsesLiveProviderIdentityWithoutInventingAnIgnoreSignal()
     {
         var user = Guid.NewGuid();
         var item = Guid.NewGuid();
@@ -164,7 +254,8 @@ public sealed class TrainingPipelineIntegrityTests
         var result = TrainingDataBuilder.BuildExamples([cached], [new UserWatchProfile { UserId = user }], null, null, null, metadata, null, CancellationToken.None);
         var contrast = Assert.Single(result.Examples);
         Assert.Equal(TrainingExample.CreateProviderObservationId(user, 555, "movie"), contrast.ObservationId);
-        Assert.True(contrast.IsContrastSample);
+        Assert.False(contrast.IsContrastSample);
+        Assert.Empty(TrainingMath.FilterEffectiveExamples([contrast], Prediction.AddDays(1), .01));
     }
 
     [Fact]
@@ -248,16 +339,16 @@ public sealed class TrainingPipelineIntegrityTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void UnwatchedRecommendations_AreFittingContrastsButNeverObservedHoldoutEvidence(bool recorded)
+    public void UnwatchedRecommendationsWithoutAChoice_AreNeitherFittingNorObservedNegativeEvidence(bool recorded)
     {
         var user = Guid.NewGuid();
         var id = Guid.NewGuid();
         var cached = new RecommendationResult { UserId = user, GeneratedAt = Prediction, Recommendations = [new RecommendedItem { ItemId = id, ItemType = "Movie", ScoringFeatures = recorded ? new CandidateFeatures { GenreSimilarity = 0.6 } : null }] };
         var example = Assert.Single(TrainingDataBuilder.BuildExamples([cached], [new UserWatchProfile { UserId = user }], CancellationToken.None).Examples);
         Assert.False(example.IsObserved);
-        Assert.True(example.IsContrastSample);
+        Assert.False(example.IsContrastSample);
         Assert.Equal(EngineConstants.ExposureLabel, example.Label);
-        Assert.Single(TrainingMath.FilterEffectiveExamples([example], Prediction.AddDays(1), 0.01));
+        Assert.Empty(TrainingMath.FilterEffectiveExamples([example], Prediction.AddDays(1), 0.01));
         Assert.False(TrainingMath.HasRankingEvidence([example], Prediction.AddDays(1), 0.01));
     }
 
@@ -265,7 +356,8 @@ public sealed class TrainingPipelineIntegrityTests
     public void CapturedContrasts_UseTheSamePreferenceBasisAsRecordedPositivesAndUnwatchedRecommendations()
     {
         var user = Guid.NewGuid();
-        var playedId = Guid.NewGuid();
+        Guid playedId;
+        do { playedId = Guid.NewGuid(); } while (new TrainingExample { Features = new CandidateFeatures(), ObservationId = TrainingExample.CreateLibraryObservationId(user, playedId), HasStableObservationId = true }.IsPermanentHoldout);
         var exposedId = Guid.NewGuid();
         var contrastId = Guid.NewGuid();
         var features = new CandidateFeatures { GenreSimilarity = 0.7, LanguageAffinity = 0.8, SubtitleLanguageAffinity = 0.3 };
@@ -273,14 +365,17 @@ public sealed class TrainingPipelineIntegrityTests
             Recommendations = [new RecommendedItem { ItemId = playedId, ItemType = "Movie", ScoringFeatures = features.Copy() }, new RecommendedItem { ItemId = exposedId, ItemType = "Movie", ScoringFeatures = features.Copy() }],
             TrainingContrasts = [new RecommendedItem { ItemId = contrastId, ItemType = "Movie", ScoringFeatures = features.Copy() }] };
         var profile = new UserWatchProfile { UserId = user, WatchedItems = [Watch(playedId, Prediction.AddDays(1), ["Drama"])] };
-        var built = TrainingDataBuilder.BuildExamples([result], [profile], CancellationToken.None);
+        var built = TrainingDataBuilder.BuildExamples([result], [profile], Prediction.AddDays(3), TestContext.Current.CancellationToken);
         Assert.Equal(1, built.RandomNegativeCount);
         Assert.All(built.Examples, example => { Assert.Equal(0.8, example.Features.LanguageAffinity); Assert.Equal(0.3, example.Features.SubtitleLanguageAffinity); });
         Assert.Single(built.Examples, example => example.IsObserved);
-        Assert.Equal(2, built.Examples.Count(example => example.IsContrastSample));
+        var positive = Assert.Single(built.Examples, example => example.IsObserved);
+        Assert.False(positive.IsPermanentHoldout);
+        Assert.Single(built.Examples, example => example.IsContrastSample);
+        Assert.DoesNotContain(built.Examples, example => example.ObservationId == TrainingExample.CreateLibraryObservationId(user, contrastId));
         Assert.All(built.Examples, example => Assert.NotSame(features, example.Features));
         profile.WatchedItems.Add(Watch(contrastId, Prediction.AddDays(1), ["Drama"]));
-        Assert.Equal(0, TrainingDataBuilder.BuildExamples([result], [profile], CancellationToken.None).RandomNegativeCount);
+        Assert.Equal(1, TrainingDataBuilder.BuildExamples([result], [profile], Prediction.AddDays(3), TestContext.Current.CancellationToken).RandomNegativeCount);
     }
 
     [Theory]
@@ -308,16 +403,17 @@ public sealed class TrainingPipelineIntegrityTests
     }
 
     [Fact]
-    public void Contrasts_UseOnlyDatedPreferencesBeforeTheirPredictionTime()
+    public void QualifiedContrastsKeepOriginalPredictionInputsInsteadOfBorrowingLaterPreferences()
     {
         var user = Guid.NewGuid();
-        var owner = Guid.NewGuid();
         var prior = Watch(Guid.NewGuid(), Prediction.AddDays(-1), ["Drama"]);
         var later = Watch(Guid.NewGuid(), Prediction.AddDays(1), ["Action"]);
+        while (new TrainingExample { Features = new CandidateFeatures(), ObservationId = TrainingExample.CreateLibraryObservationId(user, later.ItemId), HasStableObservationId = true }.IsPermanentHoldout) later.ItemId = Guid.NewGuid();
         var profile = new UserWatchProfile { UserId = user, WatchedItems = [prior, later], LanguageProfile = new Dictionary<string, LanguageProfileEntry> { ["de"] = new() { ChosenCount = 100 } } };
-        var negative = new RecommendedItem { ItemId = Guid.NewGuid(), ItemType = "Movie", Genres = ["Action"], AudioLanguages = ["de"], SubtitleLanguages = ["de"] };
-        var cached = new RecommendationResult { UserId = owner, GeneratedAt = Prediction, Recommendations = [negative] };
-        var built = TrainingDataBuilder.BuildExamples([cached], [profile, new UserWatchProfile { UserId = owner }], CancellationToken.None);
+        var original = new CandidateFeatures { GenreSimilarity = 0, HasUserInteraction = false, LanguageAffinity = .5, SubtitleLanguageAffinity = .5, IsWeekend = Prediction.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday };
+        var negative = new RecommendedItem { ItemId = Guid.NewGuid(), ItemType = "Movie", Genres = ["Action"], AudioLanguages = ["de"], SubtitleLanguages = ["de"], ScoringFeatures = original };
+        var cached = new RecommendationResult { UserId = user, GeneratedAt = Prediction, Recommendations = [new RecommendedItem { ItemId = later.ItemId, ItemType = "Movie", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .7 } }, negative] };
+        var built = TrainingDataBuilder.BuildExamples([cached], [profile], Prediction.AddDays(3), TestContext.Current.CancellationToken);
         var contrast = Assert.Single(built.Examples, example => example.UserId == user && example.IsContrastSample);
 
         Assert.Equal(Prediction, contrast.GeneratedAtUtc);
@@ -326,6 +422,8 @@ public sealed class TrainingPipelineIntegrityTests
         Assert.Equal(0.5, contrast.Features.LanguageAffinity);
         Assert.Equal(0.5, contrast.Features.SubtitleLanguageAffinity);
         Assert.Equal(Prediction.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday, contrast.Features.IsWeekend);
+        Assert.Equal(original.ToVector(), contrast.Features.ToVector());
+        Assert.NotSame(original, contrast.Features);
     }
 
     [Fact]

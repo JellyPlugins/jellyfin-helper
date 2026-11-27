@@ -58,6 +58,7 @@ public sealed class SeerrDiscoveryReconcileFailureTests : IDisposable
         _cache = new DiscoveryCacheService(pluginLog.Object, new Mock<ILogger<DiscoveryCacheService>>().Object, filePath: Path.GetTempFileName());
 
         _feedbackStore = new Mock<IDiscoveryFeedbackStore>();
+        _feedbackStore.Setup(store => store.RecordRequestedAsync(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
         _feedbackStore.Setup(f => f.GetDismissedItems(It.IsAny<Guid>()))
             .Returns(new HashSet<(int, string)>());
         _feedbackStore.Setup(f => f.GetRequestedItems(It.IsAny<Guid>()))
@@ -160,7 +161,36 @@ public sealed class SeerrDiscoveryReconcileFailureTests : IDisposable
         var count = await _sut.ReconcileRequestedItemsAsync(JellyfinUserId, CancellationToken.None);
 
         Assert.Equal(1, count);
-        _feedbackStore.Verify(f => f.RecordRequested(JellyfinUserId, 100, "movie"), Times.Once);
+        _feedbackStore.Verify(f => f.RecordRequestedAsync(JellyfinUserId, 100, "movie", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Reconcile_WhenPendingFeedbackReadFails_UsesOnlyVerifiedOwnCachedRequestsAndHonorsCancellation(bool cancel)
+    {
+        RegisterUserResolution();
+        SeedCache(100, "movie");
+        RegisterRequestPage((100, "movie"), (100, "tv"), (999, "movie"));
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        _feedbackStore.Setup(store => store.GetPendingRequestedItems(JellyfinUserId)).Returns(() =>
+        {
+            if (cancel) throw new OperationCanceledException(cancellation.Token);
+            throw new IOException("pending evidence is unavailable");
+        });
+        if (cancel)
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => _sut.ReconcileRequestedItemsAsync(JellyfinUserId, cancellation.Token));
+            _feedbackStore.Verify(store => store.RecordRequestedAsync(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+        else
+        {
+            Assert.Equal(1, await _sut.ReconcileRequestedItemsAsync(JellyfinUserId, cancellation.Token));
+            _feedbackStore.Verify(store => store.RecordRequestedAsync(JellyfinUserId, 100, "movie", It.IsAny<CancellationToken>()), Times.Once);
+            Assert.True(Assert.Single(Assert.Single(await _cache.LoadAsync(TestContext.Current.CancellationToken)).Recommendations).AlreadyRequested);
+            _feedbackStore.Verify(store => store.RecordRequestedAsync(JellyfinUserId, 100, "tv", It.IsAny<CancellationToken>()), Times.Never);
+            _feedbackStore.Verify(store => store.RecordRequestedAsync(JellyfinUserId, 999, "movie", It.IsAny<CancellationToken>()), Times.Never);
+        }
     }
 
     [Fact]
@@ -171,13 +201,25 @@ public sealed class SeerrDiscoveryReconcileFailureTests : IDisposable
         RegisterRequestPage((100, "movie"));
         // The durable feedback signal is written first and throws, so the cache mark never runs.
         // The item is not counted and the cache stays unstamped, so the next reconciliation retries.
-        _feedbackStore.Setup(f => f.RecordRequested(JellyfinUserId, 100, "movie"))
-            .Throws(new InvalidOperationException("feedback write failed"));
+        _feedbackStore.Setup(f => f.RecordRequestedAsync(JellyfinUserId, 100, "movie", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("feedback write failed"));
 
         var count = await _sut.ReconcileRequestedItemsAsync(JellyfinUserId, CancellationToken.None);
 
         Assert.Equal(0, count);
         Assert.False(_cache.Load().First(r => r.UserId == JellyfinUserId).Recommendations.Single().AlreadyRequested);
+    }
+
+    [Fact]
+    public async Task Reconcile_WhenBoundedFeedbackWriteIsUnconfirmed_DoesNotStampCacheOrClaimSuccess()
+    {
+        RegisterUserResolution();
+        SeedCache(100, "movie");
+        RegisterRequestPage((100, "movie"));
+        _feedbackStore.Setup(store => store.RecordRequestedAsync(JellyfinUserId, 100, "movie", It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        Assert.Equal(0, await _sut.ReconcileRequestedItemsAsync(JellyfinUserId, TestContext.Current.CancellationToken));
+        Assert.False(Assert.Single(Assert.Single(_cache.Load()).Recommendations).AlreadyRequested);
+        _feedbackStore.Verify(store => store.RecordRequestedAsync(JellyfinUserId, 100, "movie", It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -199,6 +241,6 @@ public sealed class SeerrDiscoveryReconcileFailureTests : IDisposable
         var count = await _sut.ReconcileRequestedItemsAsync(JellyfinUserId, CancellationToken.None);
 
         Assert.Equal(0, count);
-        _feedbackStore.Verify(f => f.RecordRequested(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<string>()), Times.Never);
+        _feedbackStore.Verify(f => f.RecordRequestedAsync(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }

@@ -391,12 +391,14 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
     ///     read across fields; this method reads every field in one lock acquisition. Purely diagnostic - it never
     ///     mutates state or triggers persistence.
     /// </summary>
-    /// <returns>An <see cref="EnsembleDiagnostics"/> record with the current blending factors, quality-gate state, sigmoid midpoint, trend, and counts.</returns>
-    internal EnsembleDiagnostics GetDiagnosticsSnapshot()
+    /// <param name="inputDerivationVersion">The scored input contract; null reports the retained model's own cohort without claiming current-input compatibility.</param>
+    /// <returns>A coherent model/cohort diagnostic snapshot; API serving explicitly requests current inputs.</returns>
+    internal EnsembleDiagnostics GetDiagnosticsSnapshot(int? inputDerivationVersion = null)
     {
         lock (_syncRoot)
         {
             var neuralSchema = GetNeuralSchema();
+            var inputVersion = inputDerivationVersion ?? _acceptedPrediction?.FeatureDerivationVersion ?? 0;
             return new EnsembleDiagnostics
             {
                 Alpha = _alpha,
@@ -413,11 +415,13 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
                 NeuralModelVersion = neuralSchema?.Version,
                 NeuralInputFeatureCount = neuralSchema?.InputCount,
                 NeuralFeatures = neuralSchema.HasValue ? ModelInputFeatures.Names(neuralSchema.Value.InputCount) : [],
-                AdmittedAlpha = _acceptedPrediction?.Resolve(_alphaMax).Alpha,
-                AdmittedNeuralBeta = _acceptedPrediction?.Resolve(_alphaMax).Beta,
+                AdmittedAlpha = FeatureDerivationContract.IsCompatible(inputVersion, _acceptedPrediction?.FeatureDerivationVersion ?? 0) ? _acceptedPrediction?.Resolve(_alphaMax).Alpha : 0,
+                AdmittedNeuralBeta = FeatureDerivationContract.IsCompatible(inputVersion, _acceptedPrediction?.FeatureDerivationVersion ?? 0) ? _acceptedPrediction?.Resolve(_alphaMax).Beta : 0,
                 AllowsExploration = !_independentAdmissionEnabled,
                 ModelRevision = _acceptedBundle?.Revision ?? 0,
                 ValidationLevel = GetOperatingValidationLevel(),
+                ModelFeatureDerivationVersion = _acceptedPrediction?.FeatureDerivationVersion ?? 0,
+                InputFeatureDerivationVersion = inputVersion,
                 HasOwnOperatingModel = HasOwnOperatingModel,
                 AdmissionReason = _lastAdmission?.Reason,
                 IndependentAdmissionReason = _lastAdmission?.ProvisionalServing?.IndependentReason ?? _lastAdmission?.Reason,
@@ -469,6 +473,50 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
         }
     }
 
+    /// <summary>Pins one coherent serving model, mixture and metadata priors for a complete ranking pass.</summary>
+    /// <param name="alphaOffset">The captured cohort offset; independently accepted mixtures remain unchanged.</param>
+    /// <returns>Resource-free immutable predictions and their own detached feature means.</returns>
+    internal ServingSnapshot CaptureServingSnapshot(double alphaOffset = 0)
+    {
+        lock (_syncRoot)
+        {
+            var floor = _genrePenaltyFloor;
+            var maximum = _alphaMax;
+            var prediction = _acceptedPrediction;
+            var learned = prediction?.Learned ?? _learned.CapturePredictionSnapshot();
+            var means = learned.ExportParameters().FeatureMeans;
+            var score = CapturePinnedScore(prediction, learned, alphaOffset, maximum, floor);
+            return new ServingSnapshot(new ServingScorer(score, Name, NameKey, floor), means is null ? null : Array.AsReadOnly(means));
+        }
+    }
+
+    /// <summary>Captures the pinned score function for one complete ranking pass from the accepted prediction or the current blend coordinates.</summary>
+    /// <param name="prediction">The accepted prediction, when one is participating in serving.</param>
+    /// <param name="learned">The learned predictor snapshot used by the independent blend.</param>
+    /// <param name="alphaOffset">The captured cohort offset; independently accepted mixtures remain unchanged.</param>
+    /// <param name="maximum">The captured alpha maximum used by an accepted prediction.</param>
+    /// <param name="floor">The captured genre-penalty floor.</param>
+    /// <returns>A resource-free score function bound to one coherent serving configuration.</returns>
+    private Func<CandidateFeatures, double> CapturePinnedScore(AcceptedPrediction? prediction, LearnedScoringStrategy.PredictionSnapshot learned, double alphaOffset, double maximum, double floor)
+    {
+        if (prediction is not null)
+        {
+            return features => prediction.Score(features, maximum, floor);
+        }
+
+        var alpha = _qualityGateFrozen ? 0 : _alpha;
+        if (Math.Abs(alphaOffset) >= 1e-10)
+        {
+            alpha = ResolveOffsetAlpha(alphaOffset);
+        }
+
+        var beta = _neural is null ? 0 : _neuralBeta;
+        var neural = alpha > 0 && beta > 0 ? _neural?.CapturePredictionSnapshot() : null;
+        return features => alpha > 0 && FeatureDerivationContract.IsCompatible(features.FeatureDerivationVersion, 0)
+            ? ComputePinnedBlendedScore(features, learned, neural, alpha, beta, floor)
+            : ScoringHelper.ComputeContextualScore(HeuristicScoringStrategy.ScoreRaw(features), features, floor);
+    }
+
     /// <inheritdoc />
     public double Score(CandidateFeatures features)
     {
@@ -507,6 +555,11 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
     /// <returns>A score between 0.0 and 1.0, where higher means more recommended.</returns>
     private double ComputeBlendedScore(CandidateFeatures features, double alpha, double beta, double floor)
     {
+        if (!FeatureDerivationContract.IsCompatible(features.FeatureDerivationVersion, 0))
+        {
+            alpha = 0;
+        }
+
         var heuristicScore = HeuristicScoringStrategy.ScoreRaw(features);
         if (alpha <= 0.0)
         {
@@ -638,7 +691,12 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
     /// <returns>A detailed score explanation including per-feature contributions.</returns>
     private ScoreExplanation ComputeBlendedExplanation(CandidateFeatures features, double alpha, double beta, double floor)
     {
-        if (features.ContentFitSupport is > 0 || features.AudienceMismatch is > 0 || features.CollectionContinuationSupport is > 0)
+        if (!FeatureDerivationContract.IsCompatible(features.FeatureDerivationVersion, 0))
+        {
+            alpha = 0;
+        }
+
+        if (features.ContentFitSupport is > 0 || features.AudienceMismatch is > 0 || features.CollectionContinuationSupport is > 0 || features.ContentFamilyMismatch is > 0)
         {
             var contextual = ScoringHelper.BuildMarginalExplanation(features, CaptureContextualScore(alpha, beta, floor), Name);
             contextual.GenrePenaltyMultiplier = ScoringHelper.ComputeGenrePenalty(features, floor);
@@ -1784,6 +1842,24 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
         {
             get => _metricsHistory;
             set => _metricsHistory = value ?? [];
+        }
+    }
+
+    internal sealed record ServingSnapshot(IScoringStrategy Strategy, IReadOnlyList<double>? FeatureMeans);
+
+    internal sealed class ServingScorer(Func<CandidateFeatures, double> score, string name, string nameKey, double floor) : IScoringStrategy
+    {
+        public string Name => name;
+
+        public string NameKey => nameKey;
+
+        public double Score(CandidateFeatures features) => score(features);
+
+        public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
+        {
+            var explanation = ScoringHelper.BuildMarginalExplanation(features, Score, Name);
+            explanation.GenrePenaltyMultiplier = ScoringHelper.ComputeGenrePenalty(features, floor);
+            return explanation;
         }
     }
 

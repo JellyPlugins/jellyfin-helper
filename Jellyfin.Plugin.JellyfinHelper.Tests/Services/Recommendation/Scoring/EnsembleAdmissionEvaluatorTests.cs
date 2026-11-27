@@ -221,6 +221,62 @@ public sealed class EnsembleAdmissionEvaluatorTests
         Assert.Single(EnsembleAdmissionEvaluator.SelectEvaluationBlock(Enumerable.Repeat(rows[0], 20)));
     }
 
+    [Theory]
+    [InlineData(.85, true)]
+    [InlineData(.6, true)]
+    [InlineData(.1, false)]
+    public void DeduplicationKeepsOriginalReplayChoicesWithoutOverridingFreshNegativeOutcomes(double latestLabel, bool retainsChoice)
+    {
+        var user = Guid.NewGuid();
+        var original = new TrainingExample
+        {
+            Features = new CandidateFeatures { GenreSimilarity = .2 }, UserId = user, ObservationId = Guid.NewGuid(),
+            HasStableObservationId = true, IsObserved = true, Label = .85, GeneratedAtUtc = ReferenceTime.AddDays(-3)
+        };
+        original.Choice = new RecommendationChoiceEvidence
+        {
+            ChosenObservationId = original.ObservationId, ChosenFeatures = original.Features.Copy(),
+            RecommendedAtUtc = ReferenceTime.AddDays(-3), AvailableAtUtc = ReferenceTime.AddDays(-10), ChosenAtUtc = ReferenceTime.AddDays(-2),
+            Alternatives = [new(Guid.NewGuid(), new CandidateFeatures { GenreSimilarity = .9 })]
+        };
+        var latest = original.Copy();
+        latest.Choice = null;
+        latest.GeneratedAtUtc = ReferenceTime.AddDays(-1);
+        latest.Label = latestLabel;
+        var selected = Assert.Single(EnsembleAdmissionEvaluator.SelectEvaluationBlock([latest, original], ReferenceTime));
+        Assert.Equal(retainsChoice, selected.Choice is not null);
+        Assert.Equal(retainsChoice ? original.GeneratedAtUtc : latest.GeneratedAtUtc, selected.GeneratedAtUtc);
+        Assert.Equal(latestLabel, selected.Label);
+        Assert.Equal(.85, original.Label);
+        Assert.Equal(latestLabel, latest.Label);
+        Assert.Null(latest.Choice);
+        Assert.NotNull(original.Choice);
+    }
+
+    [Fact]
+    public void AnIneffectiveOldChoiceCannotHideAnEligibleCurrentObservation()
+    {
+        var original = new TrainingExample
+        {
+            Features = new CandidateFeatures { GenreSimilarity = .2 }, UserId = Guid.NewGuid(), ObservationId = Guid.NewGuid(),
+            HasStableObservationId = true, Label = .85, SampleWeight = .5, GeneratedAtUtc = ReferenceTime.AddDays(-540)
+        };
+        original.Choice = new RecommendationChoiceEvidence
+        {
+            ChosenObservationId = original.ObservationId, ChosenFeatures = original.Features.Copy(),
+            RecommendedAtUtc = original.GeneratedAtUtc, AvailableAtUtc = original.GeneratedAtUtc.AddDays(-1), ChosenAtUtc = original.GeneratedAtUtc.AddDays(1),
+            Alternatives = [new(Guid.NewGuid(), new CandidateFeatures())]
+        };
+        var current = original.Copy();
+        current.GeneratedAtUtc = ReferenceTime;
+        current.Choice = null;
+        current.Label = .6;
+        var selected = Assert.Single(EnsembleAdmissionEvaluator.SelectEvaluationBlock([original, current], ReferenceTime));
+        Assert.Same(current, selected);
+        Assert.True(selected.ComputeEffectiveWeight(ReferenceTime) >= LearnedScoringStrategy.MinSampleWeight);
+        Assert.Null(selected.Choice);
+    }
+
     [Fact]
     public void HistoricalNeuralIncrementNeedsFreshLossAndRankingUtilityNotAnOldApproval()
     {
@@ -339,6 +395,28 @@ public sealed class EnsembleAdmissionEvaluatorTests
 
     private static AdmissionDecision Evaluate(IReadOnlyList<TrainingExample> cal, IReadOnlyList<TrainingExample> test, AdmissionModels models)
         => EnsembleAdmissionEvaluator.Evaluate(cal, test, models, ReferenceTime, .75, .3);
+
+    [Fact]
+    public void OrdinaryArchiveAssessmentAndReservationsExcludeAcceptanceUsersAbsentFromCalibration()
+    {
+        var calibration = Examples(80, 301);
+        var matching = Examples(80, 302);
+        var unrelated = Examples(80, 303, user: 2);
+        foreach (var row in unrelated) row.Features.CombinedCriticScore = .85 - row.Label;
+        var all = matching.Concat(unrelated).ToArray();
+        var selected = EnsembleAdmissionEvaluator.SelectOrdinaryAcceptanceEvidence(calibration, all, ReferenceTime);
+        Assert.Equal(matching.Select(row => row.ObservationId), selected.Select(row => row.ObservationId));
+        var archive = Scorer(features => features.CombinedCriticScore);
+        Assert.Null(EnsembleAdmissionEvaluator.EvaluateFixedVersion(all, Constant(.5), archive, Constant(.7), ReferenceTime));
+        var reserved = new HashSet<Guid>();
+        var assessment = EnsembleAdmissionEvaluator.EvaluateFixedVersion(selected, Constant(.5), archive, Constant(.7), ReferenceTime,
+            ids => { reserved.UnionWith(ids); return null; });
+        Assert.NotNull(assessment);
+        Assert.True(assessment.LowerHeuristicImprovement > 0);
+        Assert.True(assessment.LowerIncumbentImprovement > 0);
+        Assert.Equal(matching.Select(row => row.ObservationId).Order(), reserved.Order());
+        Assert.All(unrelated, row => Assert.DoesNotContain(row.ObservationId, reserved));
+    }
 
     private static List<TrainingExample> Examples(int count, int seed, int user = 1)
         => Enumerable.Range(0, count).Select(index => new TrainingExample

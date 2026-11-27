@@ -1,0 +1,313 @@
+using System.Collections.Immutable;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
+using Moq;
+using Xunit;
+
+namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
+
+/// <summary>Independent revealed-choice evaluation never invents binary dislikes or retunes on acceptance outcomes.</summary>
+public sealed class ChoiceRankingAdmissionEvaluatorTests
+{
+    private static readonly DateTime Now = DateTime.UtcNow;
+
+    [Theory]
+    [InlineData(.6)]
+    [InlineData(.1)]
+    public void RawReplayAndCurrentViewsCannotCalibrateAgainstAnObsoletePositiveRating(double latestLabel)
+    {
+        var user = Guid.NewGuid();
+        TrainingExample[] Slice()
+        {
+            return Rows(user, 24).SelectMany(original =>
+            {
+                var current = original.Copy();
+                current.GeneratedAtUtc = Now.AddDays(-1);
+                current.Label = latestLabel;
+                current.Choice = null;
+                return new[] { original, current };
+            }).ToArray();
+        }
+
+        var calibration = Slice();
+        var decision = EnsembleAdmissionEvaluator.Evaluate(calibration, Slice(),
+            new(Predictor(_ => .6), Predictor(features => features.GenreSimilarity > .5 ? .95 : .1)), Now, .75, 0);
+        Assert.False(decision.Accepted);
+        Assert.All(calibration.Where(row => row.Choice is not null), row => Assert.Equal(.85, row.Label));
+        Assert.All(calibration.Where(row => row.Choice is null), row => Assert.Equal(latestLabel, row.Label));
+    }
+
+    [Fact]
+    public void RealHeldOutChoicesPermitRankingLearningWithoutExplicitNegativeRatings()
+    {
+        var user = Guid.NewGuid();
+        var calibration = Rows(user, 24);
+        var acceptance = Rows(user, 24);
+        var heuristic = Predictor(_ => .4);
+        var learned = Predictor(features => features.GenreSimilarity > .5 ? .9 : .1);
+        var reserved = new HashSet<Guid>();
+        var decision = EnsembleAdmissionEvaluator.Evaluate(calibration, acceptance, new(heuristic, learned), Now, .75, 0,
+            ids => { reserved.UnionWith(ids); return null; });
+        Assert.True(decision.Accepted);
+        Assert.Equal("AcceptedChoiceRanking", decision.Reason);
+        Assert.True(decision.Utility.IsChoiceRanking);
+        Assert.Equal(1, decision.Utility.ChoiceRecallAtK);
+        Assert.True(decision.Utility.LowerHeuristicImprovement > 0);
+        Assert.Null(decision.Utility.CandidatePrecisionAtK);
+        Assert.All(acceptance, example => Assert.True(example.IsObserved));
+        Assert.Equal(24, reserved.Count);
+        Assert.All(acceptance, example => Assert.Contains(example.ObservationId, reserved));
+        Assert.All(acceptance.SelectMany(example => example.Choice!.Alternatives), alternative => Assert.DoesNotContain(alternative.ObservationId, reserved));
+    }
+
+    [Fact]
+    public void UninformativeOrReversedPredictorsCannotBypassTheQualityGate()
+    {
+        var user = Guid.NewGuid();
+        var decision = EnsembleAdmissionEvaluator.Evaluate(Rows(user, 24), Rows(user, 24),
+            new(Predictor(_ => .4), Predictor(features => features.GenreSimilarity > .5 ? .1 : .9)), Now, .75, 0);
+        Assert.False(decision.Accepted);
+        Assert.Equal("RejectedChoiceRanking", decision.Reason);
+    }
+
+    [Fact]
+    public void AcceptanceCannotReselectACalibrationWinnerWhenItsRankingFails()
+    {
+        var user = Guid.NewGuid();
+        var learned = Predictor(ContextualRanking);
+        var decision = EnsembleAdmissionEvaluator.Evaluate(Rows(user, 24), Rows(user, 24, good: false),
+            new(Predictor(_ => .4), learned), Now, .75, 0);
+        Assert.False(decision.Accepted);
+        Assert.True(decision.Candidate.Learned > 0);
+        Assert.True(decision.Utility.LowerHeuristicImprovement < 0);
+    }
+
+    [Fact]
+    public void ABetterIncumbentIsRetainedEvenWhenTheCandidateBeatsTheHeuristic()
+    {
+        var user = Guid.NewGuid();
+        var decision = EnsembleAdmissionEvaluator.Evaluate(Rows(user, 24), Rows(user, 24),
+            new(Predictor(_ => .4), Predictor(features => features.GenreSimilarity > .5 ? .9 : .1),
+                Incumbent: Predictor(features => features.GenreSimilarity > .5 ? .95 : .05)), Now, .75, 0);
+        Assert.False(decision.Accepted);
+        Assert.True(decision.Utility.LowerHeuristicImprovement > 0);
+        Assert.True(decision.Utility.LowerIncumbentImprovement < 0);
+    }
+
+    [Fact]
+    public void AMinorityCapturedTasteCannotBeSacrificedForAverageChoiceGain()
+    {
+        var user = Guid.NewGuid();
+        var primary = Guid.NewGuid();
+        var secondary = Guid.NewGuid();
+        var calibration = Rows(user, 20, lane: primary).Concat(Rows(user, 4, lane: secondary)).ToArray();
+        var acceptance = Rows(user, 20, lane: primary).Concat(Rows(user, 4, good: false, lane: secondary)).ToArray();
+        var learned = Predictor(ContextualRanking);
+        var decision = EnsembleAdmissionEvaluator.Evaluate(calibration, acceptance, new(Predictor(_ => .4), learned), Now, .75, 0);
+        Assert.False(decision.Accepted);
+        Assert.Equal("RejectedChoiceRanking", decision.Reason);
+    }
+
+    [Fact]
+    public void ImprovedNdcgAtTwentyCannotAdmitAChoiceModelThatLosesAllTopTenChoices()
+    {
+        var user = Guid.NewGuid();
+        TrainingExample[] Slice()
+        {
+            var rows = Rows(user, 24);
+            for (var index = 0; index < rows.Length; index++)
+            {
+                var above = index < 12 ? 9 : 19;
+                rows[index].Choice = rows[index].Choice! with
+                {
+                    Alternatives = Enumerable.Range(0, 20).Select(alternative => new RecommendationChoiceAlternative(Guid.NewGuid(),
+                        new CandidateFeatures { GenreSimilarity = 0, CollaborativeScore = alternative < above ? 1 : 0, TagSimilarity = alternative < 10 ? 1 : 0 })).ToImmutableArray()
+                };
+            }
+
+            return rows;
+        }
+
+        var heuristic = Predictor(features => features.GenreSimilarity > .5 ? .5 : features.CollaborativeScore > .5 ? .9 : .1);
+        var learned = Predictor(features => features.GenreSimilarity > .5 ? .8 : features.TagSimilarity > .5 ? 1 : 0);
+        var decision = ChoiceRankingAdmissionEvaluator.Evaluate(Slice(), Slice(), new(heuristic, learned), Now, (.75, 0), null)!;
+        Assert.False(decision.Accepted);
+        Assert.Equal("RejectedChoiceRanking", decision.Reason);
+        Assert.True(decision.Utility.LowerHeuristicImprovement > 0);
+        Assert.Equal(0, decision.Utility.ChoiceRecallAtK);
+    }
+
+    [Fact]
+    public void AConstantNeuralPredictionCannotReceiveInfluenceWithoutRankingIncrement()
+    {
+        var user = Guid.NewGuid();
+        var decision = EnsembleAdmissionEvaluator.Evaluate(Rows(user, 24), Rows(user, 24),
+            new(Predictor(_ => .1), Predictor(features => features.GenreSimilarity > .5 ? .6 : .3), Predictor(_ => 1)), Now, .75, .3);
+        Assert.True(decision.Accepted);
+        Assert.Equal(0, decision.Candidate.Neural);
+        Assert.Null(decision.Utility.LowerNeuralImprovement);
+    }
+
+    [Fact]
+    public void InsufficientAndRepeatedTitleChoicesStayUnknownAndUnspent()
+    {
+        var user = Guid.NewGuid();
+        var models = new AdmissionModels(Predictor(_ => .4), Predictor(_ => .8));
+        var calls = 0;
+        string? Reserve(IReadOnlyCollection<Guid> _) { calls++; return null; }
+        var first = EnsembleAdmissionEvaluator.Evaluate(Rows(user, 19), Rows(user, 24), models, Now, .75, 0, Reserve);
+        var single = Rows(user, 1)[0];
+        var repeated = Enumerable.Repeat(single, 100).ToArray();
+        var second = EnsembleAdmissionEvaluator.Evaluate(repeated, Rows(user, 24), models, Now, .75, 0, Reserve);
+        Assert.False(first.Accepted);
+        Assert.False(second.Accepted);
+        Assert.Equal(0, calls);
+    }
+
+    [Theory]
+    [InlineData(19, 1, false)]
+    [InlineData(10, 10, true)]
+    public void EffectiveChoiceSupportUsesTheSameMacroUserWeightsAsItsUtility(int firstCount, int secondCount, bool supported)
+    {
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        TrainingExample[] Slice() => Rows(first, firstCount).Concat(Rows(second, secondCount)).ToArray();
+        var calibration = Slice();
+        var acceptance = Slice();
+        Assert.Equal(supported, ChoiceRankingAdmissionEvaluator.HasSupport(calibration, Now));
+        var reservations = 0;
+        var decision = ChoiceRankingAdmissionEvaluator.Evaluate(calibration, acceptance,
+            new(Predictor(_ => .4), Predictor(features => features.GenreSimilarity > .5 ? .9 : .1)), Now, (.75, 0),
+            _ => { reservations++; return null; });
+        Assert.Equal(supported, decision?.Accepted == true);
+        Assert.Equal(supported ? 1 : 0, reservations);
+        if (supported) Assert.Equal(20, decision!.Evidence.AcceptanceEffectiveTitles, 10);
+    }
+
+    [Fact]
+    public void NewMaterialCannotBecomeRelativeAcceptanceEvidence()
+    {
+        var user = Guid.NewGuid();
+        var calibration = Rows(user, 24);
+        foreach (var row in calibration) row.Choice = row.Choice! with { AvailableAtUtc = Now.AddDays(-1) };
+        var decision = EnsembleAdmissionEvaluator.Evaluate(calibration, Rows(user, 24), new(Predictor(_ => .4), Predictor(_ => .8)), Now, .75, 0);
+        Assert.False(decision.Accepted);
+        Assert.Equal("HomogeneousObservedOutcomes", decision.Reason);
+    }
+
+    [Fact]
+    public void ChoiceReservationFailureCannotPublishAModel()
+    {
+        var user = Guid.NewGuid();
+        var decision = EnsembleAdmissionEvaluator.Evaluate(Rows(user, 24), Rows(user, 24),
+            new(Predictor(_ => .4), Predictor(features => features.GenreSimilarity > .5 ? .9 : .1)), Now, .75, 0, _ => "AcceptanceLedgerUnavailable");
+        Assert.False(decision.Accepted);
+        Assert.Equal("AcceptanceLedgerUnavailable", decision.Reason);
+    }
+
+    private static TrainingExample[] Rows(Guid user, int count, bool good = true, Guid? lane = null)
+        => Enumerable.Range(0, count).Select(_ =>
+        {
+            var id = Guid.NewGuid();
+            var features = new CandidateFeatures { GenreSimilarity = 1, CombinedCriticScore = good ? 1 : 0, ContentTasteKey = lane };
+            return new TrainingExample
+            {
+                UserId = user, ObservationId = id, HasStableObservationId = true, IsObserved = true,
+                Label = .85, GeneratedAtUtc = Now.AddDays(-3), Features = features,
+                Choice = new RecommendationChoiceEvidence
+                {
+                    ChosenObservationId = id, AvailableAtUtc = Now.AddDays(-10), RecommendedAtUtc = Now.AddDays(-3), ChosenAtUtc = Now.AddDays(-2),
+                    ChosenFeatures = features.Copy(), Alternatives = [new(Guid.NewGuid(), new CandidateFeatures { GenreSimilarity = 0, CombinedCriticScore = good ? 1 : 0 })]
+                }
+            };
+        }).ToArray();
+
+    [Fact]
+    public void HomogeneousAcceptanceCannotReplaceTheOrdinaryCalibrationProcedureWithChoiceRecalibration()
+    {
+        var user = Guid.NewGuid();
+        TrainingExample[] Slice()
+        {
+            var chosen = Rows(user, 24);
+            var negatives = Rows(user, 24);
+            foreach (var row in negatives)
+            {
+                row.Label = 0;
+                row.Choice = null;
+            }
+
+            return chosen.Concat(negatives).ToArray();
+        }
+
+        var calibration = Slice();
+        var acceptance = Slice();
+        var models = new AdmissionModels(Predictor(_ => .425), Predictor(features => features.GenreSimilarity > .5 ? .9 : .1));
+        var mixed = EnsembleAdmissionEvaluator.Evaluate(calibration, acceptance, models, Now, .75, 0);
+        Assert.False(mixed.Accepted);
+        Assert.False(mixed.Utility.IsChoiceRanking);
+        Assert.Equal(0, mixed.Candidate.Learned);
+        foreach (var row in acceptance) row.Label = .85;
+        var homogeneous = EnsembleAdmissionEvaluator.Evaluate(calibration, acceptance, models, Now, .75, 0);
+        Assert.False(homogeneous.Accepted);
+        Assert.False(homogeneous.Utility.IsChoiceRanking);
+        Assert.Equal("HomogeneousObservedOutcomes", homogeneous.Reason);
+        Assert.Equal(mixed.Candidate, homogeneous.Candidate);
+        Assert.True(ChoiceRankingAdmissionEvaluator.Evaluate(calibration, acceptance, models, Now, (.75, 0), null)!.Accepted);
+    }
+
+    [Fact]
+    public void AnUnrelatedMixedAcceptanceUserCannotEnableTheOrdinaryArchiveVetoForAnAcceptedChoiceDecision()
+    {
+        var user = Guid.NewGuid();
+        var calibration = Rows(user, 24);
+        var acceptance = Rows(user, 24).ToList();
+        var unrelated = Rows(Guid.NewGuid(), 48);
+        for (var index = 0; index < unrelated.Length; index++)
+        {
+            unrelated[index].Label = index % 2 == 0 ? .85 : 0;
+            unrelated[index].Choice = null;
+        }
+
+        acceptance.AddRange(unrelated);
+        Assert.True(EnsembleAdmissionEvaluator.HasOrdinaryRankingSupport(acceptance, Now));
+        var decision = EnsembleAdmissionEvaluator.Evaluate(calibration, acceptance,
+            new(Predictor(_ => .4), Predictor(features => features.GenreSimilarity > .5 ? .9 : .1)), Now, .75, 0);
+        Assert.True(decision.Accepted);
+        Assert.True(decision.Utility.IsChoiceRanking);
+        Assert.Equal(24, decision.Evidence.AcceptanceTitles);
+        Assert.False(EnsembleScoringStrategy.ShouldAssessOrdinaryArchive(decision, acceptance, Now));
+        var ordinary = decision with { Utility = decision.Utility with { IsChoiceRanking = false } };
+        Assert.True(EnsembleScoringStrategy.ShouldAssessOrdinaryArchive(ordinary, acceptance, Now));
+    }
+
+    [Fact]
+    public void ChoiceCalibrationCoefficientsSurviveMissingSupportAndInvalidAcceptancePredictionsWithoutSpendingEvidence()
+    {
+        var user = Guid.NewGuid();
+        var calibration = Rows(user, 24);
+        var acceptance = Rows(user, 24);
+        var models = new AdmissionModels(Predictor(_ => .4), Predictor(features => features.IsSeries ? double.NaN : features.GenreSimilarity > .5 ? .9 : .1));
+        var accepted = EnsembleAdmissionEvaluator.Evaluate(calibration, acceptance, models, Now, .75, 0);
+        Assert.True(accepted.Accepted);
+        var reserved = false;
+        var unsupported = EnsembleAdmissionEvaluator.Evaluate(calibration, acceptance.Take(19).ToArray(), models, Now, .75, 0, _ => { reserved = true; return null; });
+        Assert.False(unsupported.Accepted);
+        Assert.Equal("InsufficientIndependentRankingEvidence", unsupported.Reason);
+        Assert.Equal(accepted.Candidate, unsupported.Candidate);
+        foreach (var row in acceptance) row.Choice!.ChosenFeatures.IsSeries = true;
+        var invalid = EnsembleAdmissionEvaluator.Evaluate(calibration, acceptance, models, Now, .75, 0, _ => { reserved = true; return null; });
+        Assert.False(invalid.Accepted);
+        Assert.Equal("InvalidChoicePrediction", invalid.Reason);
+        Assert.Equal(accepted.Candidate, invalid.Candidate);
+        Assert.False(reserved);
+    }
+
+    private static IScoringStrategy Predictor(Func<CandidateFeatures, double> score)
+    {
+        var mock = new Mock<IScoringStrategy>();
+        mock.Setup(strategy => strategy.Score(It.IsAny<CandidateFeatures>())).Returns((CandidateFeatures features) => score(features));
+        return mock.Object;
+    }
+
+    private static double ContextualRanking(CandidateFeatures features)
+        => (features.GenreSimilarity > .5) == (features.CombinedCriticScore > .5) ? .9 : .1;
+}

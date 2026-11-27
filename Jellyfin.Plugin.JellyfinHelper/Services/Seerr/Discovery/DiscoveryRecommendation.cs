@@ -15,6 +15,10 @@ public sealed class DiscoveryRecommendation
     /// <summary>Gets or sets the raw features captured when this candidate was scored.</summary>
     public CandidateFeatures? ScoringFeatures { get; set; }
 
+    /// <summary>Gets or sets immutable provider metadata captured with this prediction, not fetched when feedback arrives.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataSnapshot? TitleMetadata { get; set; }
+
     /// <summary>Gets or sets the verified Jellyfin-scale certification score; null means unknown, never child-safe.</summary>
     public int? CertificationScore { get; set; }
 
@@ -86,6 +90,14 @@ public sealed class DiscoveryRecommendation
         set => field = double.IsFinite(value) ? Math.Clamp(value, 0.0, 10.0) : 0.0;
     }
 
+    /// <summary>Gets or sets rating availability captured with this prediction; null is unknown legacy provenance.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasRatingMetadata { get; set; }
+
+    /// <summary>Gets or sets popularity availability captured with this prediction.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasPopularityMetadata { get; set; }
+
     /// <summary>
     ///     Gets or sets the poster path (relative to TMDb CDN).
     /// </summary>
@@ -150,6 +162,8 @@ public sealed class DiscoveryRecommendation
         RelatedInfo = RelatedInfo,
         Genres = Genres?.ToArray() ?? [],
         TmdbRating = TmdbRating,
+        HasRatingMetadata = HasRatingMetadata,
+        HasPopularityMetadata = HasPopularityMetadata,
         PosterPath = PosterPath,
         Overview = Overview,
         AlreadyRequested = AlreadyRequested,
@@ -159,6 +173,7 @@ public sealed class DiscoveryRecommendation
         TraktSlug = TraktSlug,
         SourceRank = SourceRank,
         ScoringFeatures = ScoringFeatures?.Copy(),
+        TitleMetadata = TitleMetadata,
         CertificationScore = CertificationScore,
         CertificationPolicyCountry = CertificationPolicyCountry,
         IsPersonalized = IsPersonalized,

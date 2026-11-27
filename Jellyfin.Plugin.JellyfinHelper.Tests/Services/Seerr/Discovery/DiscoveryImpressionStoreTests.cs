@@ -15,9 +15,11 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 public sealed class DiscoveryImpressionStoreTests : IDisposable
 {
     private readonly string _directory = Path.Join(Path.GetTempPath(), "jfh-impressions-" + Guid.NewGuid().ToString("N"));
+    private readonly List<DiscoveryFeedbackStore> _stores = [];
 
     public void Dispose()
     {
+        foreach (var store in _stores) store.Dispose();
         if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true);
     }
 
@@ -57,7 +59,7 @@ public sealed class DiscoveryImpressionStoreTests : IDisposable
     }
 
     [Fact]
-    public void RecentImpression_IsCensoredUntilItsResponseWindowCloses()
+    public void ConfirmedVisibilityOnlyAllowsWeakFittingAfterTheResponseWindowNeverAnObservedDislike()
     {
         var entry = new DiscoveryFeedbackEntry { TmdbId = 1, ImpressionAtUtc = DateTime.UtcNow, ShownAtUtc = DateTime.UtcNow.AddDays(-10), ScoringFeatures = new CandidateFeatures { IsExternalCandidate = true } };
         var feedback = new DiscoveryFeedbackResult { UserId = Guid.NewGuid(), Entries = [entry] };
@@ -65,8 +67,14 @@ public sealed class DiscoveryImpressionStoreTests : IDisposable
         entry.ImpressionAtUtc = DateTime.UtcNow.AddDays(-8);
         var examples = DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples([feedback], new Dictionary<Guid, UserWatchProfile>(), null, null, CancellationToken.None).Examples;
         var example = Assert.Single(examples);
-        Assert.True(example.IsObserved);
-        Assert.Equal(0.05, example.Label);
+        Assert.False(example.IsObserved);
+        Assert.True(example.IsPassiveSample);
+        Assert.False(example.IsContrastSample);
+        Assert.Equal(0.45, example.Label);
+        Assert.Equal(0.025, example.SampleWeight);
+        Assert.NotEmpty(TrainingMath.FilterEffectiveExamples(examples, DateTime.UtcNow, 0.01));
+        Assert.False(TrainingMath.HasRankingEvidence(examples, DateTime.UtcNow, 0.01));
+        Assert.False(EnsembleAdmissionEvaluator.HasIndependentAcceptanceSupport(examples, DateTime.UtcNow));
     }
 
     [Fact]
@@ -174,12 +182,13 @@ public sealed class DiscoveryImpressionStoreTests : IDisposable
     [Fact]
     public void FailedDurableWrite_ThrowsAndDoesNotLeaveAnAcknowledgedMemoryImpression()
     {
-        var store = Store();
+        using var store = Store();
         var path = Assert.IsType<string>(typeof(DiscoveryFeedbackStore).GetField("_filePath", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(store));
         Directory.CreateDirectory(path);
         var user = Guid.NewGuid();
         Assert.Throws<IOException>(() => store.RecordImpressions(user, [Item(1)], DateTime.UtcNow));
-        Assert.Empty(store.LoadAll());
+        Assert.Throws<IOException>(() => store.LoadAll());
+        Assert.Null(store.LoadForUser(user));
     }
 
     [Fact]
@@ -231,9 +240,10 @@ public sealed class DiscoveryImpressionStoreTests : IDisposable
         Directory.CreateDirectory(_directory);
         var file = Path.Join(_directory, "jellyfin-helper-discovery-feedback.json");
         using (var stream = File.Create(file)) stream.SetLength(121L * 1024 * 1024);
-        var store = Store();
-        Assert.Empty(store.LoadAll());
-        store.RecordRequested(Guid.NewGuid(), 1, "movie");
+        using var store = Store();
+        Assert.Throws<IOException>(() => store.LoadAll());
+        Assert.Throws<IOException>(() => store.GetDismissedItems(Guid.NewGuid()));
+        Assert.Throws<IOException>(() => store.RecordRequested(Guid.NewGuid(), 1, "movie"));
         Assert.True(File.Exists(file));
         Assert.Equal(121L * 1024 * 1024, new FileInfo(file).Length);
     }
@@ -246,13 +256,81 @@ public sealed class DiscoveryImpressionStoreTests : IDisposable
         store.RecordRequested(user, 1, "movie");
         var file = Path.Join(_directory, "jellyfin-helper-discovery-feedback.json");
         var before = File.ReadAllBytes(file);
-        var bounded = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), NullLogger<DiscoveryFeedbackStore>.Instance, _directory, sizeLimit: 1);
-        bounded.RecordDismissed(user, 2, "movie");
+        using var bounded = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), NullLogger<DiscoveryFeedbackStore>.Instance, _directory, sizeLimit: 1);
+        Assert.Throws<IOException>(() => bounded.RecordDismissed(user, 2, "movie"));
         Assert.Equal(before, File.ReadAllBytes(file));
-        Assert.Contains((1, "movie"), Store().GetRequestedItems(user));
+        Assert.Contains((2, "movie"), bounded.GetDismissedItems(user));
+        Assert.Throws<IOException>(() => bounded.LoadAll());
+        Assert.DoesNotContain(bounded.LoadForUser(user)!.Entries, entry => entry.TmdbId == 2);
+
+        // The fitting snapshot and permanent identities have independent durable
+        // budgets. Failed fitting persistence cannot roll back a saved dismissal.
+        var identityFile = Path.Join(_directory, "jellyfin-helper-discovery-dismissals", user.ToString("N") + ".json");
+        using var identities = JsonDocument.Parse(File.ReadAllBytes(identityFile));
+        Assert.Equal(user, identities.RootElement.GetProperty("userId").GetGuid());
+        var identity = Assert.Single(identities.RootElement.GetProperty("identities").EnumerateArray());
+        Assert.Equal(2, identity.GetProperty("tmdbId").GetInt32());
+        Assert.Equal("movie", identity.GetProperty("mediaType").GetString());
+        Assert.Equal(DateTimeKind.Utc, identity.GetProperty("dismissedAtUtc").GetDateTime().Kind);
+        var persisted = JsonSerializer.Deserialize<List<DiscoveryFeedbackResult>>(File.ReadAllBytes(file), Jellyfin.Plugin.JellyfinHelper.Services.JsonDefaults.Options)!;
+        Assert.DoesNotContain(persisted.SelectMany(result => result.Entries), entry => entry.TmdbId == 2);
+
+        bounded.Dispose();
+        using var cold = Store();
+        Assert.Contains((2, "movie"), cold.GetDismissedItems(user));
+        Assert.DoesNotContain((2, "tv"), cold.GetDismissedItems(user));
+        Assert.Empty(cold.GetDismissedItems(Guid.NewGuid()));
+        Assert.Contains((1, "movie"), cold.GetRequestedItems(user));
+        Assert.Equal(1, Assert.Single(Assert.Single(cold.LoadAll()).Entries).TmdbId);
+        Assert.Equal(before, File.ReadAllBytes(file));
     }
 
-    private DiscoveryFeedbackStore Store() => new(Mock.Of<IPluginLogService>(), NullLogger<DiscoveryFeedbackStore>.Instance, _directory);
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FailedIndependentDismissalPersistence_PreservesBothFilesWithoutClaimingColdDurability(bool fullIdentityBudget)
+    {
+        var user = Guid.NewGuid();
+        var seed = Store();
+        seed.RecordRequested(user, 1, "movie");
+        seed.RecordDismissed(user, 3, "movie");
+        var feedbackFile = Path.Join(_directory, "jellyfin-helper-discovery-feedback.json");
+        var identityFile = Path.Join(_directory, "jellyfin-helper-discovery-dismissals", user.ToString("N") + ".json");
+        var feedbackBefore = File.ReadAllBytes(feedbackFile);
+        var identitiesBefore = File.ReadAllBytes(identityFile);
+        using var failed = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), NullLogger<DiscoveryFeedbackStore>.Instance, _directory)
+        {
+            RetryTimeProvider = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider(),
+            DismissalIdentityByteBudget = fullIdentityBudget ? identitiesBefore.LongLength : DiscoveryDismissalIdentityStore.MaximumStoreBytes,
+            WriteDismissalIdentities = (path, contents) =>
+            {
+                if (!fullIdentityBudget) throw new IOException("independent dismissal write failed before its commit");
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        Assert.Throws<IOException>(() => failed.RecordDismissed(user, 2, "movie"));
+        Assert.Contains((2, "movie"), failed.GetDismissedItems(user));
+        Assert.Throws<IOException>(() => failed.LoadAll());
+        Assert.DoesNotContain(failed.LoadForUser(user)!.Entries, entry => entry.TmdbId == 2);
+        Assert.Equal(feedbackBefore, File.ReadAllBytes(feedbackFile));
+        Assert.Equal(identitiesBefore, File.ReadAllBytes(identityFile));
+
+        failed.Dispose();
+        using var cold = Store();
+        Assert.DoesNotContain((2, "movie"), cold.GetDismissedItems(user));
+        Assert.Contains((3, "movie"), cold.GetDismissedItems(user));
+        Assert.Contains((1, "movie"), cold.GetRequestedItems(user));
+        Assert.DoesNotContain(cold.LoadForUser(user)!.Entries, entry => entry.TmdbId == 2);
+        Assert.Equal(feedbackBefore, File.ReadAllBytes(feedbackFile));
+        Assert.Equal(identitiesBefore, File.ReadAllBytes(identityFile));
+    }
+
+    private DiscoveryFeedbackStore Store()
+    {
+        var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), NullLogger<DiscoveryFeedbackStore>.Instance, _directory);
+        _stores.Add(store);
+        return store;
+    }
 
     private static DiscoveryRecommendation Item(int id) => new() { TmdbId = id, MediaType = "movie", Title = "title", Genres = ["Drama"], ScoringFeatures = new CandidateFeatures { GenreSimilarity = 0.3, IsExternalCandidate = true } };
 }

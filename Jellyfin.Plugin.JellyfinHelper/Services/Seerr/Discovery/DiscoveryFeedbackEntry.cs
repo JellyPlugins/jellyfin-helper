@@ -16,11 +16,29 @@ public sealed class DiscoveryFeedbackEntry
     /// <summary>Gets or sets the immutable-by-copy prediction-time features, absent on legacy feedback.</summary>
     public CandidateFeatures? ScoringFeatures { get; set; }
 
+    /// <summary>Gets or sets immutable underlying metadata from the confirmed prediction, never a later provider refresh.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataSnapshot? TitleMetadata { get; set; }
+
     /// <summary>Gets or sets the first confirmed viewport impression, distinct from candidate generation.</summary>
     public DateTime? ImpressionAtUtc { get; set; }
 
-    /// <summary>Gets or sets when the first delivery-bound action or impression confirmed the prediction's provenance.</summary>
+    /// <summary>Gets or sets when the currently retained prediction inputs were confirmed by a delivery-bound action or impression.</summary>
     public DateTime? PredictionEvidenceAtUtc { get; set; }
+
+    /// <summary>Gets or sets the latest card-backed action that owns the prediction inputs; ID-only actions never establish this provenance.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? PredictionActionAtUtc { get; set; }
+
+    /// <summary>Gets or sets the durable receipt-order epoch that owns the prediction inputs.</summary>
+    public Guid? PredictionReceiptEpoch { get; set; }
+
+    /// <summary>Gets or sets the admission order within that epoch; legacy absent order preserves first committed inputs.</summary>
+    public long? PredictionReceiptOrder { get; set; }
+
+    /// <summary>Gets or sets the latest explicitly card-backed request that may supersede earlier dismissal or impression inputs.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? CardRequestedAtUtc { get; set; }
 
     /// <summary>Gets or sets a value indicating whether size compaction erased prediction inputs; outcomes remain exclusion history, not training evidence.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
@@ -69,6 +87,14 @@ public sealed class DiscoveryFeedbackEntry
     ///     Gets or sets the TMDb community rating (0-10) at the time of discovery.
     /// </summary>
     public double TmdbRating { get; set; }
+
+    /// <summary>Gets or sets prediction-time rating availability; absent legacy provenance remains null.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasRatingMetadata { get; set; }
+
+    /// <summary>Gets or sets prediction-time popularity availability, distinct from its numeric projection.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasPopularityMetadata { get; set; }
 
     /// <summary>
     ///     Gets or sets the raw TMDb popularity value at the time of discovery. Persisted so the training pipeline can reconstruct the exact PopularityScore feature used at inference via ExternalCandidateFeatureBuilder.NormalizePopularity.

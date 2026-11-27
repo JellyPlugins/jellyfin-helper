@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
@@ -10,6 +11,10 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 internal sealed class TmdbDiscoverItem
 {
     private List<int> _genreIds = [];
+    private List<int>? _independentGenreIds;
+    private IReadOnlyList<string>? _independentSourceGenres;
+    private IReadOnlyList<string>? _projectedSourceGenres;
+    private IReadOnlyList<string>? _sourceGenres;
 
     /// <summary>
     ///     Gets or sets the TMDb ID.
@@ -47,21 +52,55 @@ internal sealed class TmdbDiscoverItem
     [JsonPropertyName("genreIds")]
     public List<int> GenreIds
     {
-        get => _genreIds;
-        set => _genreIds = value ?? [];
+        get
+        {
+            return _genreIds;
+        }
+
+        set
+        {
+            _genreIds = value ?? [];
+            _independentGenreIds = null;
+        }
     }
 
-    /// <summary>
-    ///     Gets or sets the average vote score (0-10).
-    /// </summary>
-    [JsonPropertyName("voteAverage")]
-    public double VoteAverage { get; set; }
+    internal bool HasIndependentGenreIds => (_independentGenreIds ?? _genreIds).Count > 0;
 
     /// <summary>
-    ///     Gets or sets the popularity score.
+    ///     Gets or sets the observed vote score; missing or invalid source values remain unavailable.
+    /// </summary>
+    [JsonPropertyName("voteAverage")]
+    public double? VoteAverageValue
+    {
+        get;
+        set => field = value is { } number && double.IsFinite(number) && number >= 0 ? number : null;
+    }
+
+    /// <summary>Gets or sets the compatible numeric projection without making absence a known zero.</summary>
+    [JsonIgnore]
+    public double VoteAverage { get => VoteAverageValue.GetValueOrDefault(); set => VoteAverageValue = value; }
+
+    /// <summary>Gets a value indicating whether a finite non-negative rating was actually supplied.</summary>
+    [JsonIgnore]
+    public bool HasRatingMetadata => VoteAverageValue.HasValue;
+
+    /// <summary>
+    ///     Gets or sets observed popularity; explicit zero is distinct from unavailable metadata.
     /// </summary>
     [JsonPropertyName("popularity")]
-    public double Popularity { get; set; }
+    public double? PopularityValue
+    {
+        get;
+        set => field = value is { } number && double.IsFinite(number) && number >= 0 ? number : null;
+    }
+
+    /// <summary>Gets or sets the compatible numeric popularity projection.</summary>
+    [JsonIgnore]
+    public double Popularity { get => PopularityValue.GetValueOrDefault(); set => PopularityValue = value; }
+
+    /// <summary>Gets a value indicating whether finite non-negative popularity was actually supplied.</summary>
+    [JsonIgnore]
+    public bool HasPopularityMetadata => PopularityValue.HasValue;
 
     /// <summary>
     ///     Gets or sets the movie release date.
@@ -135,6 +174,10 @@ internal sealed class TmdbDiscoverItem
     [JsonIgnore]
     public List<string>? KnownPeople { get; set; }
 
+    /// <summary>Gets or sets immutable observed credits with provider-person identities and field acquisition.</summary>
+    [JsonIgnore]
+    public Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.CreditMetadataSnapshot? Credits { get; set; }
+
     /// <summary>Gets or sets the collection identity supplied by a movie detail response.</summary>
     [JsonIgnore]
     public int CollectionId { get; set; }
@@ -150,6 +193,29 @@ internal sealed class TmdbDiscoverItem
     /// <summary>Gets or sets provider keywords; null means unknown, empty means known to be empty.</summary>
     [JsonIgnore]
     public List<string>? KnownKeywords { get; set; }
+
+    /// <summary>Gets or sets optional external-source genre labels, separate from provider keyword evidence.</summary>
+    [JsonIgnore]
+    public IReadOnlyList<string>? SourceGenres
+    {
+        get
+        {
+            return _sourceGenres;
+        }
+
+        set
+        {
+            _independentSourceGenres = value?.ToArray();
+            _sourceGenres = CombinedSourceGenres();
+        }
+    }
+
+    /// <summary>Gets or sets structured title metadata, independent of availability and parental certification.</summary>
+    [JsonIgnore]
+    public Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataSnapshot? TitleMetadata { get; set; }
+
+    /// <summary>Gets or sets the isolated Seerr observation before cross-provider combination.</summary>
+    internal Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataSnapshot? SeerrTitleMetadata { get; set; }
 
     /// <summary>Gets or sets provider production companies; null means unknown.</summary>
     [JsonIgnore]
@@ -181,4 +247,25 @@ internal sealed class TmdbDiscoverItem
     /// <summary>Gets or sets the personal seed-title retrieval lane, never a keyword match, outcome or score bonus.</summary>
     [JsonIgnore]
     public string? PersonalSeedKey { get; set; }
+
+    /// <summary>Replaces provider projections without losing the original discover-list evidence on expiry.</summary>
+    /// <param name="genres">Validated metadata IDs; empty clears, null restores the independent input.</param>
+    internal void ProjectGenreIds(IEnumerable<int>? genres)
+    {
+        _independentGenreIds ??= _genreIds.ToList();
+        _genreIds = genres?.Distinct().ToList() ?? _independentGenreIds.ToList();
+    }
+
+    /// <summary>Replaces only metadata-derived labels; overlapping independent source labels retain their provenance.</summary>
+    /// <param name="genres">Labels from the currently accepted metadata observations, or null when rejected.</param>
+    internal void ProjectSourceGenres(IEnumerable<string>? genres)
+    {
+        _projectedSourceGenres = genres?.ToArray();
+        _sourceGenres = CombinedSourceGenres();
+    }
+
+    private string[]? CombinedSourceGenres()
+        => _independentSourceGenres is null && _projectedSourceGenres is null
+            ? null
+            : (_independentSourceGenres ?? []).Concat(_projectedSourceGenres ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
 }

@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Model.Entities;
@@ -13,6 +15,95 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 /// </summary>
 public sealed class EngineLanguageAffinityTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ForcedDominantUsageCannotOutrankActiveAudioOrSubtitleChoices(bool subtitles)
+    {
+        var profile = new UserWatchProfile();
+        var languages = new Dictionary<string, LanguageProfileEntry>
+        {
+            ["en"] = new() { ForcedCount = 100 },
+            ["de"] = new() { ChosenCount = 1 }
+        };
+        if (subtitles) profile.SubtitleLanguageProfile = languages;
+        else profile.LanguageProfile = languages;
+        double Score(string language) => subtitles
+            ? TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache([language], profile)
+            : TrainingFeatureComputer.ComputeLanguageAffinityFromCache([language], profile);
+
+        Assert.Equal("en", subtitles ? profile.PrimarySubtitleLanguage : profile.PrimaryLanguage);
+        Assert.Equal(.5, Score("en"));
+        Assert.Equal(1, Score("de"));
+        if (!subtitles)
+        {
+            Assert.Null(Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine.FirstPreferredLanguage(["en"], profile));
+            Assert.Equal("de", Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine.FirstPreferredLanguage(["de"], profile));
+        }
+
+        var mixed = new Dictionary<string, LanguageProfileEntry>
+        {
+            ["en"] = new() { ChosenCount = 1, ForcedCount = 100 },
+            ["de"] = new() { ChosenCount = 2 }
+        };
+        if (subtitles) profile.SubtitleLanguageProfile = mixed;
+        else profile.LanguageProfile = mixed;
+        Assert.Equal("en", subtitles ? profile.PrimarySubtitleLanguage : profile.PrimaryLanguage);
+        Assert.Equal(.85, Score("en"));
+        Assert.Equal(1, Score("de"));
+    }
+
+    [Fact]
+    public void OnlyForcedUsageStaysToleranceAndCannotCreateAReasonAnchor()
+    {
+        var profile = new UserWatchProfile
+        {
+            LanguageProfile = new() { ["en"] = new() { ForcedCount = 100 } },
+            SubtitleLanguageProfile = new() { ["en"] = new() { ForcedCount = 100 } }
+        };
+        Assert.Equal("en", profile.PrimaryLanguage);
+        Assert.Equal(.5, TrainingFeatureComputer.ComputeLanguageAffinityFromCache(["en"], profile));
+        Assert.Equal(.5, TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(["en"], profile));
+        Assert.Null(Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine.FirstPreferredLanguage(["en"], profile));
+        foreach (var language in new[] { "en", "de" })
+        {
+            Assert.Equal(.5, TrainingFeatureComputer.ComputeLanguageAffinityFromCache([language], profile));
+            Assert.Equal(.5, TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache([language], profile));
+            Assert.False(TrainingFeatureComputer.HasLanguageEvidence([language], profile.LanguageProfile, true));
+            Assert.False(TrainingFeatureComputer.HasLanguageEvidence([language], profile.SubtitleLanguageProfile, true));
+        }
+
+        var unknown = new CandidateFeatures
+        {
+            LanguageAffinity = .5, SubtitleLanguageAffinity = .5,
+            HasAudioLanguageEvidence = TrainingFeatureComputer.HasLanguageEvidence(["de"], profile.LanguageProfile, true),
+            HasSubtitleLanguageEvidence = TrainingFeatureComputer.HasLanguageEvidence(["de"], profile.SubtitleLanguageProfile, true)
+        };
+        var means = Enumerable.Repeat(.7, CandidateFeatures.FeatureCount).ToArray();
+        Assert.Equal(.7, unknown.ToModelVector(means)[(int)FeatureIndex.LanguageAffinity]);
+        Assert.Equal(.7, unknown.ToModelVector(means)[(int)FeatureIndex.SubtitleLanguageAffinity]);
+        Assert.Equal(0, profile.LanguageProfile["en"].ChosenCount);
+        Assert.Equal(100, profile.LanguageProfile["en"].ForcedCount);
+    }
+
+    [Fact]
+    public void EqualActiveChoicesKeepThePrimaryTieBreakButStalePreferenceSetsCannotInventChoices()
+    {
+        var languages = new Dictionary<string, LanguageProfileEntry>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["de"] = new() { ChosenCount = 3 },
+            ["en"] = new() { ChosenCount = 3 },
+            ["fr"] = new() { ForcedCount = 2 }
+        };
+        var preferred = new HashSet<string>(["de", "en", "fr"], StringComparer.OrdinalIgnoreCase);
+        var tolerated = new HashSet<string>(["fr"], StringComparer.OrdinalIgnoreCase);
+        Assert.Equal(1, TrainingFeatureComputer.ComputeBestLanguageAffinity(["en"], "en", preferred, tolerated, languages));
+        Assert.Equal(.85, TrainingFeatureComputer.ComputeBestLanguageAffinity(["de"], "en", preferred, tolerated, languages));
+        Assert.Equal(1, TrainingFeatureComputer.ComputeBestLanguageAffinity(["de"], "unknown", preferred, tolerated, languages));
+        Assert.Equal(.5, TrainingFeatureComputer.ComputeBestLanguageAffinity(["fr"], "fr", preferred, tolerated, languages));
+        Assert.Equal(.1, TrainingFeatureComputer.ComputeBestLanguageAffinity(["es"], "es", preferred, tolerated, languages));
+    }
+
     // ComputeLanguageAffinity - AUDIO language affinity
 
     [Fact]

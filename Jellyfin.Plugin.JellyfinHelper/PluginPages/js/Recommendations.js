@@ -224,8 +224,8 @@ function ensembleCompositionHtml(data) {
 
 function ensembleModelLabel(data, modelScope) {
     if (data.IsPerUser || data.UserName) {
-        // This user has an individually trained model. Use their name when the backend supplied it, otherwise
-        // a neutral term so the per-user status is never mislabelled as the shared global model.
+        // A scoped user name does not imply personal fitting or current-derivation validation.
+        // Keep the coordinate source and evidence status explicit in the following labels.
         var who = data.UserName ? String(data.UserName) : T('recsEnsembleThisUser', 'this user');
         var userLabel = T('recsEnsembleStrategyPerUser', 'Recommendation strategy for {0}:').replace('{0}', function () { return who; });
         return escHtml(userLabel.replace(/[:：]\s*$/, '') + ' — ' + modelScope + ':');
@@ -253,10 +253,14 @@ function ensembleStatusSummary(data) {
         var levels = {
             Provisional: ['recsEnsembleStatusProvisional', 'Provisional — ranking not yet verified'],
             Verified: ['recsEnsembleStatusVerified', 'Independently verified'],
+            ChoiceRanking: ['recsEnsembleStatusChoiceRanking', 'Independently verified choice ranking'],
             GlobalPrior: ['recsEnsembleStatusPrior', 'Starting mixture from global priors']
         };
         var level = levels[data.ValidationLevel];
         if (level) status = escHtml(T(level[0], level[1]));
+        if (data.FeatureDerivationStatus !== 'Current' && (data.EffectiveAlpha > 0 || data.Alpha > 0)) {
+            status = escHtml(T('recsEnsembleStatusOlderDerivation', 'Older feature-derivation prior — current ranking not verified'));
+        }
     }
     return escHtml(T('recsEnsembleTrainedOn', 'Trained on {0} examples').replace('{0}', String(data.TrainingExampleCount)))
         + ' <span class="recs-ensemble-sep">\u00B7</span> '

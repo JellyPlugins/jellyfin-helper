@@ -177,6 +177,9 @@ public sealed class CandidateFeatures
     /// </summary>
     public const int FeatureCount = 41;
 
+    /// <summary>The first forward root-derivation contract, including bounded absolute CF support; not the v6 parameter version.</summary>
+    public const int CurrentFeatureDerivationVersion = 2;
+
     /// <summary>
     ///     Normalization ceiling for genre count (items with >= this many genres map to 1.0).
     /// </summary>
@@ -232,6 +235,11 @@ public sealed class CandidateFeatures
     private double? _audienceMismatch;
     private double? _collectionContinuationSupport;
     private double? _contentFitAffinity;
+    private double? _contentFamilyMismatch;
+
+    /// <summary>Gets or sets prediction-input provenance outside the vector. Absent old JSON stays zero/unknown; only new builders mark the current derivation.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int FeatureDerivationVersion { get; set; }
 
     /// <summary>Gets or sets captured title-level thematic affinity; never replaces raw tag-Jaccard.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -244,6 +252,18 @@ public sealed class CandidateFeatures
     /// <summary>Gets or sets whether own provider keywords and a positive personal title document were available; known nonmatches remain real zeros.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? HasContentMetadata { get; set; }
+
+    /// <summary>Gets or sets the captured coherent-title interest lane, not an outcome or an ML coordinate.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? ContentTasteKey { get; set; }
+
+    /// <summary>Gets or sets a captured content-family confidence guard. Not an ML coordinate or parental permission.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? ContentFamilyMismatch
+    {
+        get => _contentFamilyMismatch;
+        set => _contentFamilyMismatch = value.HasValue && double.IsFinite(value.Value) ? Math.Clamp(value.Value, 0, 0.5) : null;
+    }
 
     /// <summary>Gets or sets coherent narrative support, shared by v6 model inputs and bounded final confidence. Missing evidence remains unknown.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -281,6 +301,26 @@ public sealed class CandidateFeatures
     /// </summary>
     public bool? HasPeopleMetadata { get; set; }
 
+    /// <summary>Gets or sets genuine writer-affinity availability; null preserves captured legacy coordinates.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasWriterMetadata { get; set; }
+
+    /// <summary>Gets or sets genuine billing-affinity availability; null preserves captured legacy coordinates.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasBillingMetadata { get; set; }
+
+    /// <summary>Gets or sets immutable candidate credit provenance outside the exact 41-dimensional vector.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.CreditMetadataSnapshot? Credits { get; set; }
+
+    /// <summary>Gets or sets captured rating availability; null preserves unknowable legacy input semantics.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasRatingMetadata { get; set; }
+
+    /// <summary>Gets or sets captured popularity availability; explicit zero is known, not missing.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasPopularityMetadata { get; set; }
+
     /// <summary>Gets or sets whether audio availability and personal playback evidence support this affinity.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? HasAudioLanguageEvidence { get; set; }
@@ -288,6 +328,18 @@ public sealed class CandidateFeatures
     /// <summary>Gets or sets whether subtitle availability and personal playback evidence support this affinity.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? HasSubtitleLanguageEvidence { get; set; }
+
+    /// <summary>Gets or sets the physical item whose audio/subtitle tracks were observed; a sampled episode does not prove availability for every episode.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? MediaLanguageSampleItemId { get; set; }
+
+    /// <summary>Gets or sets the actual UTC acquisition time of the sampled track metadata, outside the 41-feature vector.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? MediaLanguageSampledAtUtc { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether track evidence covers only one eligible series episode rather than the offered item's own streams.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool MediaLanguageIsEpisodeSample { get; set; }
 
     /// <summary>Gets or sets a value indicating whether both candidate genres and personal genre preferences are available. Missing evidence is not a mismatch; legacy snapshots retain their original penalty behaviour.</summary>
     public bool HasGenreEvidence { get; set; } = true;
@@ -645,6 +697,8 @@ public sealed class CandidateFeatures
     {
         var copy = Copy();
         copy.ContentFitSupport = null;
+        copy.ContentTasteKey = null;
+        copy.ContentFamilyMismatch = null;
         copy.AudienceMismatch = null;
         copy.CollectionContinuationSupport = null;
         copy.ContentFitAffinity = null;
@@ -749,6 +803,7 @@ public sealed class CandidateFeatures
     internal void WriteForModel(double[] buffer, IReadOnlyList<double>? means)
     {
         WriteToVector(buffer);
+        CreditFeatureImputation.Write(this, buffer, means);
         if (HasAudioLanguageEvidence == false)
         {
             buffer[(int)FeatureIndex.LanguageAffinity] = means?.Count == FeatureCount ? Clamp01(means[(int)FeatureIndex.LanguageAffinity], 0.5) : 0.5;
@@ -765,6 +820,30 @@ public sealed class CandidateFeatures
             return;
         }
 
+        WriteExternalForModel(buffer, means);
+    }
+
+    private void WriteExternalForModel(double[] buffer, IReadOnlyList<double>? means)
+    {
+        if (HasRatingMetadata == false)
+        {
+            buffer[(int)FeatureIndex.CombinedCriticScore] = means?.Count == FeatureCount ? Clamp01(means[(int)FeatureIndex.CombinedCriticScore], 0.5) : 0.5;
+            buffer[(int)FeatureIndex.GenreCriticInteraction] = GenreSimilarity * buffer[(int)FeatureIndex.CombinedCriticScore];
+            buffer[(int)FeatureIndex.RecencyCriticInteraction] = RecencyScore * buffer[(int)FeatureIndex.CombinedCriticScore];
+        }
+
+        if (HasPopularityMetadata == false)
+        {
+            buffer[(int)FeatureIndex.PopularityScore] = means?.Count == FeatureCount ? Clamp01(means[(int)FeatureIndex.PopularityScore]) : 0.0;
+        }
+
+        WriteExternalMissingFeatures(buffer, means);
+        buffer[(int)FeatureIndex.GenreCollabInteraction] = GenreSimilarity * buffer[(int)FeatureIndex.CollaborativeScore];
+        buffer[(int)FeatureIndex.PeopleGenreInteraction] = GenreSimilarity * buffer[(int)FeatureIndex.PeopleSimilarity];
+    }
+
+    private void WriteExternalMissingFeatures(double[] buffer, IReadOnlyList<double>? means)
+    {
         foreach (var index in ExternalMissingIndices)
         {
             if (IsExternalFeatureKnown(index) || (index == FeatureIndex.PeopleSimilarity && HasPeopleMetadata != false))
@@ -775,9 +854,6 @@ public sealed class CandidateFeatures
             var i = (int)index;
             buffer[i] = means?.Count == FeatureCount ? Clamp01(means[i]) : ExternalPrior(index);
         }
-
-        buffer[(int)FeatureIndex.GenreCollabInteraction] = GenreSimilarity * buffer[(int)FeatureIndex.CollaborativeScore];
-        buffer[(int)FeatureIndex.PeopleGenreInteraction] = GenreSimilarity * buffer[(int)FeatureIndex.PeopleSimilarity];
     }
 
     /// <summary>Builds a raw model vector without mutating recorded features.</summary>

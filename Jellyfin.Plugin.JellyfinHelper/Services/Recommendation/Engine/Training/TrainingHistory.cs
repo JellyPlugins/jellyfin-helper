@@ -22,8 +22,8 @@ internal static class TrainingHistory
             && DateTimeNormalization.ToUtc(w.LastPlayedDate.Value) < cutoff
             && w.HasPlaybackActivity()
             && (excludedIds is null || !excludedIds.Contains(w.ItemId)))
-            .Select(w => w.CopyPlaybackHistory()).ToList();
-        return BuildProfile(source, rows);
+            .Select(w => w.CopyPlaybackHistory().AtMetadataCutoff(cutoff)).ToList();
+        return BuildProfile(source, rows, cutoff);
     }
 
     /// <summary>Filters already detached playback rows owned exclusively by a training build, without cloning every prefix again.</summary>
@@ -33,23 +33,28 @@ internal static class TrainingHistory
     /// <returns>A profile reusing immutable build-owned rows.</returns>
     internal static UserWatchProfile BeforePlaybackSnapshot(UserWatchProfile source, DateTime cutoff, IReadOnlySet<Guid>? excludedIds = null)
     {
-        var rows = source.WatchedItems.Where(row => row.LastPlayedDate < cutoff && (excludedIds is null || !excludedIds.Contains(row.ItemId))).ToList();
-        return BuildProfile(source, rows);
+        var rows = source.WatchedItems.Where(row => row.LastPlayedDate < cutoff && (excludedIds is null || !excludedIds.Contains(row.ItemId)))
+            .Select(row => row.AtMetadataCutoff(cutoff)).ToList();
+        return BuildProfile(source, rows, cutoff);
     }
 
-    private static UserWatchProfile BuildProfile(UserWatchProfile source, List<WatchedItemInfo> rows)
+    private static UserWatchProfile BuildProfile(UserWatchProfile source, List<WatchedItemInfo> rows, DateTime cutoff)
     {
         var profile = new UserWatchProfile
         {
             UserId = source.UserId,
             UserName = source.UserName,
             MaxParentalRating = source.MaxParentalRating,
+            AccessibleItemIds = source.AccessibleItemIds,
+            CreditMetadataCutoffUtc = cutoff,
             WatchedItems = new Collection<WatchedItemInfo>(rows),
             LastActivityDate = rows.Select(w => w.LastPlayedDate).Max()
         };
-        foreach (var row in rows.Where(row => row.PeopleNames.Count > 0))
+        foreach (var title in rows.Where(row => row.Credits is not null || row.SeriesCredits is not null)
+            .GroupBy(row => row.SeriesId.GetValueOrDefault() != Guid.Empty ? row.SeriesId!.Value : row.ItemId))
         {
-            foreach (var person in row.PeopleNames.Distinct(StringComparer.OrdinalIgnoreCase))
+            foreach (var person in title.SelectMany(row => CreditPreferenceProfile.Resolve(row)?.People() ?? [])
+                .Select(person => person.Name).Distinct(StringComparer.OrdinalIgnoreCase))
             {
                 profile.PeopleProfile[person] = profile.PeopleProfile.GetValueOrDefault(person) + 1;
             }

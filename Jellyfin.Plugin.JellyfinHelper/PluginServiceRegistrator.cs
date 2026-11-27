@@ -2,6 +2,7 @@
 using System.IO;
 using System.IO.Abstractions;
 using System.Net.Http;
+using Jellyfin.Database.Implementations;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
@@ -14,6 +15,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Link;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
@@ -24,9 +26,12 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using Jellyfin.Plugin.JellyfinHelper.Services.WebInjection;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -134,12 +139,23 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<Services.Trakt.ITraktPersonalSourceService>(sp =>
             new Services.Trakt.TraktPersonalSourceService(
                 sp.GetRequiredService<Services.Trakt.External.IOfficialTraktPluginReader>()));
-        serviceCollection.AddSingleton<Services.Trakt.ITraktDiscoveryService, Services.Trakt.TraktDiscoveryService>();
+        serviceCollection.AddSingleton<Services.Trakt.ITraktDiscoveryService>(sp => new Services.Trakt.TraktDiscoveryService(
+            sp.GetRequiredService<System.Net.Http.IHttpClientFactory>(),
+            sp.GetRequiredService<Services.Trakt.ITraktPersonalSourceService>(),
+            sp.GetRequiredService<ISeerrDiscoveryService>(),
+            sp.GetRequiredService<Services.Trakt.TraktCacheService>(),
+            sp.GetRequiredService<IPluginLogService>(),
+            sp.GetRequiredService<IUserManager>(),
+            sp.GetRequiredService<ILogger<Services.Trakt.TraktDiscoveryService>>())
+        {
+            MetadataCache = sp.GetRequiredService<TitleMetadataCache>()
+        });
         serviceCollection.AddSingleton<ICleanupConfigHelper, CleanupConfigHelper>();
         serviceCollection.AddSingleton<ICleanupTrackingService, CleanupTrackingService>();
         serviceCollection.AddSingleton<ITrashService, TrashService>();
         serviceCollection.AddSingleton<IPluginConfigurationService, PluginConfigurationService>();
         serviceCollection.AddSingleton<IPluginLogService, PluginLogService>();
+        serviceCollection.AddSingleton<MediaStatisticsUserDataSource>();
         serviceCollection.AddSingleton<IMediaStatisticsService, MediaStatisticsService>();
         serviceCollection.AddSingleton<IArrOrphanProtectionService, ArrOrphanProtectionService>();
         serviceCollection.AddSingleton<IStatisticsCacheService, StatisticsCacheService>();
@@ -154,7 +170,26 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IArrIntegrationService, ArrIntegrationService>();
         serviceCollection.AddSingleton<ISeerrIntegrationService, SeerrIntegrationService>();
         serviceCollection.AddSingleton<IFolderBrowserService, FolderBrowserService>();
-        serviceCollection.AddSingleton<IWatchHistoryService, WatchHistoryService>();
+        serviceCollection.AddSingleton<IWatchHistoryService>(sp => new WatchHistoryService(
+            sp.GetRequiredService<ILibraryManager>(),
+            sp.GetRequiredService<IPluginConfigurationService>(),
+            sp.GetRequiredService<IUserManager>(),
+            sp.GetRequiredService<IUserDataManager>(),
+            sp.GetRequiredService<IPluginLogService>(),
+            sp.GetRequiredService<ILogger<WatchHistoryService>>(),
+            sp.GetService<ILinkedChildrenService>())
+        {
+            TitleMetadataCache = sp.GetRequiredService<TitleMetadataCache>(),
+            VirtualItems = sp.GetRequiredService<VirtualItemDetector>(),
+            UseUserAccessQueries = true
+        });
+        serviceCollection.AddSingleton(sp => new TitleMetadataCache(
+            sp.GetService<MediaBrowser.Controller.Configuration.IServerConfigurationManager>(),
+            sp.GetRequiredService<IFileSystem>(),
+            string.IsNullOrEmpty(Plugin.Instance?.DataFolderPath) ? null : Path.Join(Plugin.Instance.DataFolderPath, "title-metadata-v1.json"))
+        {
+            TraktMetadataAvailable = config => sp.GetRequiredService<Services.Trakt.ITraktPersonalSourceService>().IsAvailable(config)
+        });
         serviceCollection.AddSingleton(sp =>
         {
             var dataPath = Plugin.Instance?.DataFolderPath;
@@ -233,21 +268,82 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
                 logger,
                 fileSystem);
         });
-        serviceCollection.AddSingleton<IRecommendationEngine, Engine>();
+        serviceCollection.AddSingleton<RecommendationChoiceHistory>(CreateRecommendationChoiceHistory);
+        serviceCollection.AddSingleton<IRecommendationEngine>(sp => new Engine(
+            sp.GetRequiredService<IWatchHistoryService>(),
+            sp.GetRequiredService<ILibraryManager>(),
+            sp.GetRequiredService<IPluginConfigurationService>(),
+            sp.GetRequiredService<IPluginLogService>(),
+            sp.GetRequiredService<ILogger<Engine>>(),
+            sp.GetRequiredService<IScoringStrategy>(),
+            sp.GetRequiredService<IStrategySelector>(),
+            sp.GetRequiredService<IPerUserEnsembleRegistry>(),
+            sp.GetRequiredService<IDiscoveryFeedbackStore>(),
+            sp.GetService<ILinkedChildrenService>(),
+            sp.GetRequiredService<TitleMetadataCache>())
+        {
+            ChoiceHistory = sp.GetRequiredService<RecommendationChoiceHistory>(),
+            VirtualItems = sp.GetRequiredService<VirtualItemDetector>()
+        });
         serviceCollection.AddSingleton<IRecommendationCacheService, RecommendationCacheService>();
         serviceCollection.AddSingleton<IUserActivityInsightsService, UserActivityInsightsService>();
         serviceCollection.AddSingleton<IUserActivityCacheService, UserActivityCacheService>();
+        serviceCollection.AddSingleton(sp => new HostedPlaylistInventory(sp.GetRequiredService<ILibraryManager>(), sp.GetRequiredService<IDbContextFactory<JellyfinDbContext>>()));
+        serviceCollection.AddSingleton(sp => new PlaylistLibraryServices(sp.GetRequiredService<IPluginConfigurationService>(), sp.GetRequiredService<VirtualItemDetector>())
+        {
+            LinkedChildren = sp.GetService<ILinkedChildrenService>(),
+            OwnedPlaylists = sp.GetRequiredService<HostedPlaylistInventory>().LoadOwned,
+            RecoveryDirectory = Path.Join(Plugin.Instance?.DataFolderPath ?? Path.Join(sp.GetRequiredService<MediaBrowser.Common.Configuration.IApplicationPaths>().DataPath, "plugins", "Jellyfin.Plugin.JellyfinHelper"), "jellyfin-helper-playlist-recovery")
+        });
         serviceCollection.AddSingleton<IRecommendationPlaylistService, RecommendationPlaylistService>();
         serviceCollection.AddSingleton<DiscoveryCacheService>();
         serviceCollection.AddSingleton<IDiscoveryFeedbackStore, DiscoveryFeedbackStore>();
         serviceCollection.AddSingleton<VirtualItemDetector>();
-        serviceCollection.AddSingleton<ISeerrDiscoveryService, SeerrDiscoveryService>();
+        serviceCollection.AddSingleton(sp => new SupplementaryTitleMetadataService(
+            sp.GetRequiredService<IArrIntegrationService>(),
+            sp.GetRequiredService<TitleMetadataCache>(),
+            sp.GetRequiredService<Services.Security.ISecretProtector>(),
+            sp.GetRequiredService<IPluginLogService>(),
+            sp.GetRequiredService<ILogger<SupplementaryTitleMetadataService>>())
+        {
+            MetadataLanguage = () => sp.GetService<MediaBrowser.Controller.Configuration.IServerConfigurationManager>()?.Configuration?.PreferredMetadataLanguage
+        });
+        serviceCollection.AddSingleton<ISeerrDiscoveryService>(sp => new SeerrDiscoveryService(
+            sp.GetRequiredService<System.Net.Http.IHttpClientFactory>(),
+            sp.GetRequiredService<IWatchHistoryService>(),
+            sp.GetRequiredService<IArrIntegrationService>(),
+            sp.GetRequiredService<ILibraryManager>(),
+            sp.GetRequiredService<IPerUserEnsembleRegistry>(),
+            sp.GetRequiredService<DiscoveryCacheService>(),
+            sp.GetRequiredService<IDiscoveryFeedbackStore>(),
+            sp.GetRequiredService<IPluginLogService>(),
+            sp.GetRequiredService<Services.Security.ISecretProtector>(),
+            sp.GetRequiredService<VirtualItemDetector>(),
+            sp.GetRequiredService<ILogger<SeerrDiscoveryService>>(),
+            sp.GetService<MediaBrowser.Model.Globalization.ILocalizationManager>(),
+            sp.GetService<MediaBrowser.Controller.Configuration.IServerConfigurationManager>(),
+            sp.GetService<ILinkedChildrenService>(),
+            sp.GetRequiredService<TitleMetadataCache>())
+        {
+            SupplementalMetadata = sp.GetRequiredService<SupplementaryTitleMetadataService>()
+        });
 
         // Action filter for surfacing model-binding failures into the plugin log before [ApiController]'s auto-400 short-circuits the request.
         serviceCollection.AddScoped<ModelBindingLogFilter>();
 
         // Rewrites the served index.html so the Discovery script loads without touching the web directory.
         serviceCollection.AddSingleton<IStartupFilter, ScriptInjectionStartupFilter>();
+    }
+
+    /// <summary>Creates bounded observed-choice replay without depending on external providers.</summary>
+    /// <param name="serviceProvider">The plugin's service provider.</param>
+    /// <returns>The scheduled training replay store.</returns>
+    private static RecommendationChoiceHistory CreateRecommendationChoiceHistory(IServiceProvider serviceProvider)
+    {
+        var dataPath = Plugin.Instance?.DataFolderPath;
+        return new RecommendationChoiceHistory(
+            serviceProvider.GetRequiredService<IFileSystem>(),
+            string.IsNullOrEmpty(dataPath) ? null : Path.Join(dataPath, "recommendation-choice-history-v1.json"));
     }
 
     /// <summary>

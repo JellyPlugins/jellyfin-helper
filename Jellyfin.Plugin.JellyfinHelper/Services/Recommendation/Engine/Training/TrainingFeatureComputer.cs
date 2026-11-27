@@ -17,14 +17,15 @@ internal static class TrainingFeatureComputer
     /// </summary>
     /// <param name="userProfile">The user's watch profile.</param>
     /// <param name="itemStudiosLookup">Precomputed itemId ? studios mapping built once from all previous results.</param>
+    /// <param name="producerMetadata">Qualified producer snapshots; unqualified lookup labels are retained only for compatibility.</param>
+    /// <param name="producerAtUtc">The prediction-time producer acquisition cutoff.</param>
     /// <returns>Set of preferred studio names.</returns>
     internal static HashSet<string> BuildStudioPreferenceSetFromCache(
         UserWatchProfile userProfile,
-        Dictionary<Guid, IReadOnlyList<string>> itemStudiosLookup)
-        => PreferenceBuilder.BuildMetadataPreferenceSet(
-            userProfile,
-            itemStudiosLookup.GetValueOrDefault,
-            row => (row.Studios, row.OwnStudios, row.SeriesStudios));
+        Dictionary<Guid, IReadOnlyList<string>> itemStudiosLookup,
+        IReadOnlyDictionary<Guid, TitleMetadataSnapshot?>? producerMetadata = null,
+        DateTime? producerAtUtc = null)
+        => ProducerEvidence.Preferences(userProfile, producerMetadata, producerAtUtc);
 
     /// <summary>
     ///     Builds a set of preferred tag names for a user from a precomputed item-to-tags lookup.
@@ -47,12 +48,14 @@ internal static class TrainingFeatureComputer
     /// <param name="candidateGenres">The candidate item's genres.</param>
     /// <param name="userProfile">The user's watch profile.</param>
     /// <param name="isDay">True for day-of-week affinity, false for hour-of-day affinity.</param>
+    /// <param name="predictionTimeUtc">Optional exact prediction clock shared with the other reconstructed signals.</param>
     /// <returns>A temporal affinity score between 0 and 1, or 0.5 if no timestamp is available.</returns>
     internal static double ComputeTrainingTemporalAffinity(
         WatchedItemInfo? watchedItem,
         IReadOnlyList<string>? candidateGenres,
         UserWatchProfile userProfile,
-        bool isDay)
+        bool isDay,
+        DateTime? predictionTimeUtc = null)
     {
         if (watchedItem?.LastPlayedDate is null || candidateGenres is null || candidateGenres.Count == 0)
         {
@@ -60,7 +63,7 @@ internal static class TrainingFeatureComputer
         }
 
         var candidateGenreSet = GenreNormalizer.Set(candidateGenres);
-        return ComputeTrainingTemporalAffinity(watchedItem, candidateGenreSet, userProfile, isDay);
+        return ComputeTrainingTemporalAffinity(watchedItem, candidateGenreSet, userProfile, isDay, predictionTimeUtc);
     }
 
     /// <summary>
@@ -70,82 +73,23 @@ internal static class TrainingFeatureComputer
     /// <param name="candidateGenreSet">Genre set of the candidate.</param>
     /// <param name="userProfile">User profile to scan for bucket history.</param>
     /// <param name="isDay">True for day of week affinity, false for hour bucket.</param>
+    /// <param name="predictionTimeUtc">Optional exact prediction clock.</param>
     /// <returns>Temporal affinity between 0 and 1, or 0.5 when insufficient data exists.</returns>
     internal static double ComputeTrainingTemporalAffinity(
         WatchedItemInfo? watchedItem,
         HashSet<string> candidateGenreSet,
         UserWatchProfile userProfile,
-        bool isDay)
+        bool isDay,
+        DateTime? predictionTimeUtc = null)
     {
         if (watchedItem?.LastPlayedDate is null || candidateGenreSet.Count == 0 || userProfile.WatchedItems.Count < 10)
         {
             return 0.5;
         }
 
-        var watchDate = watchedItem.LastPlayedDate.Value;
-
-        candidateGenreSet = GenreNormalizer.CanonicalSet(candidateGenreSet);
-        var (matchCount, totalInBucket) = CountBucketMatches(watchedItem, candidateGenreSet, userProfile, watchDate, isDay);
-
-        if (totalInBucket < 3)
-        {
-            return 0.5;
-        }
-
-        return Math.Clamp((double)matchCount / totalInBucket, 0.0, 1.0);
-    }
-
-    /// <summary>
-    ///     Counts, among the user's watch history in the same temporal bucket as watchDate, how many items share a genre with the candidate.
-    /// </summary>
-    /// <param name="watchedItem">The target watched item (excluded to avoid label leakage).</param>
-    /// <param name="candidateGenreSet">The candidate's genre set.</param>
-    /// <param name="userProfile">The user's watch profile.</param>
-    /// <param name="watchDate">The reference watch timestamp defining the bucket.</param>
-    /// <param name="isDay">Whether to bucket by day-of-week (else by hour bucket).</param>
-    /// <returns>The genre-match count and the total items in the bucket.</returns>
-    private static (int MatchCount, int TotalInBucket) CountBucketMatches(
-        WatchedItemInfo watchedItem,
-        HashSet<string> candidateGenreSet,
-        UserWatchProfile userProfile,
-        DateTime watchDate,
-        bool isDay)
-    {
-        var matchCount = 0;
-        var totalInBucket = 0;
-
-        foreach (var w in userProfile.WatchedItems)
-        {
-            // Match live scoring check for playback activity.
-            if (!w.HasPlaybackActivity() || !w.LastPlayedDate.HasValue)
-            {
-                continue;
-            }
-
-            // Exclude the target itself or training would leak its own watch event.
-            if (w.ItemId == watchedItem.ItemId)
-            {
-                continue;
-            }
-
-            var inBucket = isDay
-                ? w.LastPlayedDate.Value.DayOfWeek == watchDate.DayOfWeek
-                : TemporalFeatures.GetTimeBucket(w.LastPlayedDate.Value.Hour)
-                  == TemporalFeatures.GetTimeBucket(watchDate.Hour);
-
-            if (!inBucket)
-            {
-                continue;
-            }
-
-            totalInBucket++;
-            if (w.Genres is not null && GenreNormalizer.Overlaps(candidateGenreSet, w.Genres))
-            {
-                matchCount++;
-            }
-        }
-
-        return (matchCount, totalInBucket);
+        var reference = DateTimeNormalization.ToUtc(predictionTimeUtc ?? watchedItem.LastPlayedDate.Value);
+        var excludedSeries = watchedItem.SeriesId ?? (string.Equals(watchedItem.ItemType, "Series", StringComparison.OrdinalIgnoreCase) ? watchedItem.ItemId : (Guid?)null);
+        return TemporalFeatures.ComputeTemporalAffinity(candidateGenreSet, userProfile, reference, isDay, watchedItem.ItemId, excludedSeries);
     }
 
     /// <summary>
@@ -176,7 +120,7 @@ internal static class TrainingFeatureComputer
     /// <param name="parentSeriesRating">The current explicit parent-series outcome rating, never a historical feature.</param>
     /// <param name="seriesTmdbId">The known provider identity of the aggregated title, or zero for a library fallback.</param>
     /// <param name="collectionProgressionBoost">Confirmed parent-series membership scored against the historical, self-excluded sibling counts.</param>
-    /// <param name="preparedContentFit">Already self-excluded historical semantic evidence, or null for direct callers.</param>
+    /// <param name="seriesMetadata">Self-excluded semantic and credit evidence and qualified producer snapshots from the same prediction boundary.</param>
     internal static void AddAggregatedSeriesExample(
         List<TrainingExample> examples,
         List<WatchedItemInfo> episodes,
@@ -203,13 +147,19 @@ internal static class TrainingFeatureComputer
         double? parentSeriesRating = null,
         int seriesTmdbId = 0,
         double collectionProgressionBoost = 0.0,
-        ContentFitProfile? preparedContentFit = null)
+        SeriesMetadata? seriesMetadata = null)
     {
+        var preparedContentFit = seriesMetadata?.ContentFit;
+        var producerMetadata = seriesMetadata?.ProducerMetadata;
+        var preparedCredits = seriesMetadata?.Credits;
+        var candidateCredits = seriesMetadata?.CandidateCredits;
         // Use latest episode for temporal signals.
         var mostRecent = episodes
             .OrderByDescending(e => e.LastPlayedDate)
             .FirstOrDefault();
         var predictionTime = DateTimeNormalization.ToUtc(mostRecent?.LastPlayedDate ?? organicFallbackTimestamp);
+        episodes = episodes.Select(episode => episode.AtMetadataCutoff(predictionTime)).ToList();
+        mostRecent = mostRecent?.AtMetadataCutoff(predictionTime);
 
         var playedEps = episodes.Count(e => e.Played);
         var completionRatio = episodes.Count > 0
@@ -230,7 +180,9 @@ internal static class TrainingFeatureComputer
         var studioMatch = false;
         var tagSimilarity = 0.0;
 
-        if (itemStudiosLookup.TryGetValue(seriesId, out var seriesStudios) && seriesStudios.Count > 0)
+        var producerSnapshot = producerMetadata is not null && producerMetadata.TryGetValue(seriesId, out var capturedProducer) ? capturedProducer : mostRecent?.TitleMetadata;
+        var producerKeys = ProducerEvidence.Keys(producerSnapshot, predictionTime);
+        if (producerKeys is { Count: > 0 } seriesStudios)
         {
             studioMatch = seriesStudios.Any(preferredStudios.Contains);
         }
@@ -256,6 +208,8 @@ internal static class TrainingFeatureComputer
         // (a filtered subset) would otherwise leak its own label back into the aggregate.
         var episodeIds = ContentScoring.BuildSeriesExcludeSet(seriesId, userProfile);
         var languageProfile = preparedContentFit is null ? TrainingHistory.Before(userProfile, predictionTime, episodeIds) : userProfile;
+        var credits = preparedCredits ?? CreditPreferenceProfile.Create(languageProfile, referenceTimeUtc: predictionTime);
+        candidateCredits = (candidateCredits ?? mostRecent?.SeriesCredits)?.At(predictionTime);
 
         var (familiarity3, genreAvgCompletion3, genreAbandonRate3) = ContentScoring.ComputeGenreEngagement(genreList, userProfile, episodeIds);
         var userRatingScore3 = ContentScoring.ComputeGenreRatingScore(genreList, userProfile, episodeIds);
@@ -268,6 +222,7 @@ internal static class TrainingFeatureComputer
 
         var features = new CandidateFeatures
         {
+            FeatureDerivationVersion = CandidateFeatures.CurrentFeatureDerivationVersion,
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(genreList, genrePreferences),
             HasGenreEvidence = genreList.Count > 0 && genrePreferences.Count > 0,
             CollaborativeScore = collabScore,
@@ -286,8 +241,8 @@ internal static class TrainingFeatureComputer
             StudioMatch = studioMatch,
             SeriesAffinity = seriesAffinity,
             PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
-            DayOfWeekAffinity = ComputeTrainingTemporalAffinity(mostRecent, allGenres, userProfile, isDay: true),
-            HourOfDayAffinity = ComputeTrainingTemporalAffinity(mostRecent, allGenres, userProfile, isDay: false),
+            DayOfWeekAffinity = ComputeTrainingTemporalAffinity(mostRecent, allGenres, userProfile, isDay: true, predictionTimeUtc: predictionTime),
+            HourOfDayAffinity = ComputeTrainingTemporalAffinity(mostRecent, allGenres, userProfile, isDay: false, predictionTimeUtc: predictionTime),
             IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, mostRecent?.LastPlayedDate ?? organicFallbackTimestamp),
             TagSimilarity = tagSimilarity,
             LibraryAddedRecency =
@@ -295,9 +250,9 @@ internal static class TrainingFeatureComputer
                     ? ContentScoring.ComputeRecencyScore(minDate, predictionTime)
                     : 0.5,
             LanguageAffinity = ComputeLanguageAffinityFromCache(mostRecent?.AudioLanguages ?? [], languageProfile),
-            HasAudioLanguageEvidence = HasLanguageEvidence(mostRecent?.AudioLanguages, languageProfile.LanguageProfile.Count, mostRecent?.HasAudioLanguageMetadata),
+            HasAudioLanguageEvidence = HasLanguageEvidence(mostRecent?.AudioLanguages, languageProfile.LanguageProfile, mostRecent?.HasAudioLanguageMetadata),
             SubtitleLanguageAffinity = ComputeSubtitleLanguageAffinityFromCache(mostRecent?.SubtitleLanguages ?? [], languageProfile),
-            HasSubtitleLanguageEvidence = HasLanguageEvidence(mostRecent?.SubtitleLanguages, languageProfile.SubtitleLanguageProfile.Count, mostRecent?.HasSubtitleLanguageMetadata),
+            HasSubtitleLanguageEvidence = HasLanguageEvidence(mostRecent?.SubtitleLanguages, languageProfile.SubtitleLanguageProfile, mostRecent?.HasSubtitleLanguageMetadata),
             CollectionProgressionBoost = collectionProgressionBoost,
             FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(episodes.Select(episode => episode.TmdbCollectionId).FirstOrDefault(id => id > 0), seriesFranchise, preferredFranchises),
             ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity([.. seriesCountries], preferredCountries),
@@ -312,7 +267,7 @@ internal static class TrainingFeatureComputer
                     mostRecent?.PeopleNames ?? [],
                     mostRecent?.PeopleWeights ?? []),
                 preferredPeopleWeights),
-            GenreStudioIdfPrior = SimilarityComputer.ComputeGenreStudioIdfPrior(genreList, null, genreStudioIdf)
+            GenreStudioIdfPrior = SimilarityComputer.ComputeGenreStudioIdfPrior(genreList, producerKeys, genreStudioIdf)
         };
 
         // Genre exposure features
@@ -321,9 +276,14 @@ internal static class TrainingFeatureComputer
         features.GenreUnderexposure = underexp;
         features.GenreDominanceRatio = domRatio;
         features.GenreAffinityGap = affGap;
+        credits.Apply(features, candidateCredits);
+        var neighbors = seriesMetadata?.Neighbors ?? BuildNeighborInputs(languageProfile, credits, producerMetadata, predictionTime);
+        features.ContentNearestNeighborScore = ComputeContentNearestNeighborFromCache(
+            genreList, credits.Keys(candidateCredits).ToArray(), producerKeys ?? [], neighbors.Genres, neighbors.People, neighbors.Studios);
 
-        var contentFit = preparedContentFit ?? ContentFitProfile.Create(userProfile, itemTagsLookup.GetValueOrDefault, episodeIds);
-        contentFit.Apply(features, genreList, seriesTags ?? mostRecent?.SeriesTags ?? mostRecent?.Tags ?? [], mostRecent?.OfficialRating, genrePreferences);
+        var contentFit = preparedContentFit ?? ContentFitProfile.Create(languageProfile, itemTagsLookup.GetValueOrDefault, episodeIds, metadataCutoff: predictionTime);
+        var metadataAtPrediction = mostRecent?.TitleMetadata is { } metadata && metadata.FetchedAtUtc <= predictionTime ? metadata : null;
+        contentFit.Apply(features, genreList, seriesTags ?? mostRecent?.SeriesTags ?? mostRecent?.Tags ?? [], mostRecent?.OfficialRating, genrePreferences, metadataAtPrediction);
 
         // Label from aggregated completion.
         var (label, isObserved) = ComputeAggregatedSeriesOutcome(episodes, parentSeriesRating, playedEps, completionRatio);
@@ -431,10 +391,7 @@ internal static class TrainingFeatureComputer
                 seriesFranchise = ep.TmdbCollectionName;
             }
 
-            foreach (var c in ep.ProductionCountries.Where(static c => !string.IsNullOrWhiteSpace(c)))
-            {
-                seriesCountries.Add(c);
-            }
+            seriesCountries.UnionWith(CountryIdentity.Set(ep.ProductionCountries));
 
             foreach (var t in ep.InheritedTags.Where(static t => !string.IsNullOrWhiteSpace(t)))
             {
@@ -589,18 +546,18 @@ internal static class TrainingFeatureComputer
 
     /// <summary>Checks language-input availability without calling a sparse, unlabelled track list a genuine mismatch.</summary>
     /// <param name="languages">Captured normalized available languages, or null when unknown.</param>
-    /// <param name="personalLanguageCount">The number of evidenced personal language preferences.</param>
+    /// <param name="languageProfile">Actual choices and forced exposure, kept distinct.</param>
     /// <param name="hasMetadata">Whether every track's language was identified; null preserves legacy list provenance.</param>
     /// <returns>Whether the affinity is suitable as an observed ML coordinate.</returns>
-    internal static bool HasLanguageEvidence(IReadOnlyList<string>? languages, int personalLanguageCount, bool? hasMetadata = null)
-        => hasMetadata != false && personalLanguageCount > 0 && languages is { Count: > 0 }
+    internal static bool HasLanguageEvidence(IReadOnlyList<string>? languages, IDictionary<string, LanguageProfileEntry> languageProfile, bool? hasMetadata = null)
+        => hasMetadata != false && languageProfile.Values.Any(entry => entry is { ChosenCount: > 0 }) && languages is { Count: > 0 }
             && languages.All(language => LanguageIdentity.GetIso6391Code(language) is not null);
 
     /// <summary>
     ///     Core language affinity logic.
     /// </summary>
     /// <param name="candidateLanguages">Candidate languages.</param>
-    /// <param name="primaryLang">Primary language.</param>
+    /// <param name="primaryLang">Descriptive primary usage, used only to break equal active-choice counts.</param>
     /// <param name="preferredLangs">Preferred languages.</param>
     /// <param name="toleratedLangs">Tolerated languages.</param>
     /// <param name="languageProfile">Full language profile.</param>
@@ -612,17 +569,24 @@ internal static class TrainingFeatureComputer
         IReadOnlySet<string> toleratedLangs,
         IDictionary<string, LanguageProfileEntry> languageProfile)
     {
+        if (!languageProfile.Values.Any(entry => entry is { ChosenCount: > 0 }))
+        {
+            // Forced exposure cannot establish a mismatch for an untried language.
+            return 0.5;
+        }
+
         var bestAffinity = 0.1;
+        var chosenPrimary = PrimaryChosenLanguage(languageProfile, primaryLang);
 
         foreach (var lang in candidateLanguages)
         {
             double affinity;
 
-            if (string.Equals(lang, primaryLang, StringComparison.OrdinalIgnoreCase))
+            if (chosenPrimary is not null && string.Equals(lang, chosenPrimary, StringComparison.OrdinalIgnoreCase))
             {
                 affinity = 1.0;
             }
-            else if (preferredLangs.Contains(lang))
+            else if (preferredLangs.Contains(lang) && languageProfile.TryGetValue(lang, out var preferred) && preferred is { ChosenCount: > 0 })
             {
                 affinity = 0.85;
             }
@@ -652,4 +616,37 @@ internal static class TrainingFeatureComputer
 
         return bestAffinity;
     }
+
+    private static string? PrimaryChosenLanguage(IDictionary<string, LanguageProfileEntry> profile, string? usagePrimary)
+    {
+        var maximumChoices = profile.Values.Where(entry => entry is { ChosenCount: > 0 })
+            .Select(entry => entry.ChosenCount).DefaultIfEmpty(0).Max();
+        if (maximumChoices == 0)
+        {
+            return null;
+        }
+
+        if (usagePrimary is not null && profile.TryGetValue(usagePrimary, out var primary) && primary is not null && primary.ChosenCount == maximumChoices)
+        {
+            return usagePrimary;
+        }
+
+        return profile.Where(entry => entry.Value is not null && entry.Value.ChosenCount == maximumChoices)
+            .Select(entry => entry.Key).OrderBy(language => language, StringComparer.OrdinalIgnoreCase).First();
+    }
+
+    private static NeighborInputs BuildNeighborInputs(UserWatchProfile profile, CreditPreferenceProfile credits, IReadOnlyDictionary<Guid, TitleMetadataSnapshot?>? producers, DateTime predictionTime)
+    {
+        var rows = profile.WatchedItems.Where(row => row.HasMeaningfulInteraction()).ToArray();
+        return new NeighborInputs(
+            rows.Select(row => GenreNormalizer.Set(row.Genres)).ToList(),
+            rows.Select(row => credits.Keys(CreditPreferenceProfile.Resolve(row))).ToList(),
+            rows.Select(row => new HashSet<string>(ProducerEvidence.ForWatch(row, producers, predictionTime) ?? [], StringComparer.Ordinal)).ToList());
+    }
+
+    /// <summary>One metadata boundary for aggregated historical series features; never an outcome label.</summary>
+    internal sealed record SeriesMetadata(ContentFitProfile? ContentFit = null, IReadOnlyDictionary<Guid, TitleMetadataSnapshot?>? ProducerMetadata = null, CreditPreferenceProfile? Credits = null, CreditMetadataSnapshot? CandidateCredits = null, NeighborInputs? Neighbors = null);
+
+    /// <summary>Aligned, already scoped historical neighbor facets; metadata is not reacquired per aggregate.</summary>
+    internal sealed record NeighborInputs(List<HashSet<string>> Genres, List<HashSet<string>> People, List<HashSet<string>> Studios);
 }

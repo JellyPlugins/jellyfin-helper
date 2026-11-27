@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Threading;
@@ -51,6 +52,8 @@ internal sealed class TrainingService : IDisposable
         _pluginLog = pluginLog;
         _logger = logger;
     }
+
+    internal RecommendationChoiceHistory? ChoiceHistory { get; set; }
 
     /// <inheritdoc />
     public void Dispose()
@@ -167,6 +170,10 @@ internal sealed class TrainingService : IDisposable
             var batch = BuildTrainingExamples(
                 globalEnsemble, previousResults, seriesEpisodeCounts, genreStudioIdf, libraryItemMetadata, cancellationToken);
             var pooled = batch.Examples;
+            if (pooled.Count == 0)
+            {
+                return false;
+            }
 
             SplitHeldOut(pooled, out var globalExamples, out var globalHoldout);
             // Pin training-only priors BEFORE this cycle's global promotion. Personal acceptance must not
@@ -333,6 +340,10 @@ internal sealed class TrainingService : IDisposable
         var batch = BuildTrainingExamples(
             strategy, previousResults, seriesEpisodeCounts, genreStudioIdf, libraryItemMetadata, cancellationToken);
         var trainingExamples = batch.Examples;
+        if (trainingExamples.Count == 0)
+        {
+            return false;
+        }
 
         var sampled = incremental && trainingExamples.Count >= EngineConstants.IncrementalMinExamplesThreshold
             ? ApplyIncrementalSampling(trainingExamples, batch.PreviousResults)
@@ -342,6 +353,22 @@ internal sealed class TrainingService : IDisposable
 
         return TrainStrategyOnExamples(strategy, sampled, trainNeural: true, cancellationToken);
     }
+
+    internal static IReadOnlyList<RecommendationResult> ScopePreviousResults(IReadOnlyList<RecommendationResult> results, IReadOnlySet<Guid> allowed)
+        => results.Select(result => new RecommendationResult
+        {
+            UserId = result.UserId, UserName = result.UserName, Profile = result.Profile, GeneratedAt = result.GeneratedAt,
+            ScoringStrategy = result.ScoringStrategy, ScoringStrategyKey = result.ScoringStrategyKey, Cohort = result.Cohort,
+            RankingDiagnostics = result.RankingDiagnostics is { } trace
+                ? trace with
+                {
+                    Entries = trace.Entries.Where(entry => allowed.Contains(entry.ItemId)).ToArray(),
+                    IsComplete = trace.IsComplete && trace.Entries.All(entry => allowed.Contains(entry.ItemId))
+                }
+                : null,
+            Recommendations = new Collection<RecommendedItem>(result.Recommendations.Where(item => allowed.Contains(item.ItemId)).ToList()),
+            TrainingContrasts = result.TrainingContrasts is null ? null : new Collection<RecommendedItem>(result.TrainingContrasts.Where(item => allowed.Contains(item.ItemId)).ToList())
+        }).ToArray();
 
     /// <summary>
     ///     Builds the pooled training examples for this run (all phases + discovery feedback) and logs the
@@ -363,44 +390,240 @@ internal sealed class TrainingService : IDisposable
         LibraryItemMetadata? libraryItemMetadata,
         CancellationToken cancellationToken)
     {
-        var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
-        cancellationToken.ThrowIfCancellationRequested();
-        // The live profile provider excludes deleted/disabled accounts. Cached feedback and
-        // recommendation pools must not reintroduce those users into fitting or contrasts.
-        var activeUserIds = allProfiles.Select(profile => profile.UserId).ToHashSet();
-        previousResults = previousResults.Where(result => activeUserIds.Contains(result.UserId)).ToArray();
+        var inputs = PrepareTrainingInputs(previousResults, libraryItemMetadata, cancellationToken);
+        if (inputs is null)
+        {
+            return new TrainingBatch([], []);
+        }
 
-        // Load discovery feedback if available (Phase 4 data source).
-        // Best-effort: if the store is unavailable or throws, training continues without it.
-        var discoveryFeedback = LoadDiscoveryFeedback()?.Where(result => activeUserIds.Contains(result.UserId)).ToArray();
+        var (allProfiles, scopedResults) = inputs;
+        var profilesByUser = allProfiles.ToDictionary(profile => profile.UserId);
+        var loadedFeedback = LoadDiscoveryFeedback();
+        if (_discoveryFeedbackStore is not null && loadedFeedback is null)
+        {
+            _pluginLog.LogInfo(LogSource, "Training deferred: confirmed Discovery feedback is unavailable; existing models and replay retained.", _logger);
+            return new TrainingBatch([], []);
+        }
 
-        // Discovery training imputes the uncomputable external-candidate features to the model's persisted
-        // training-set means, so it must use the SAME means discovery inference reads (from the learned
-        // sub-strategy). Null on the very first run (no standardized model yet) keeps the legacy constants.
+        var discoveryFeedback = loadedFeedback?.Where(result => profilesByUser.ContainsKey(result.UserId))
+            .Select(result => ScopeDiscoveryFeedback(result, profilesByUser[result.UserId], libraryItemMetadata, cancellationToken)).ToArray();
         var featureMeans = strategy switch
         {
             EnsembleScoringStrategy ensemble => ensemble.LearnedStrategy.GetFeatureMeans(),
             LearnedScoringStrategy learned => learned.GetFeatureMeans(),
             _ => null
         };
-
-        // Delegate example building to the TrainingDataBuilder (includes Phase 4 discovery feedback)
-        var (examples, organicCount, randomNegativeCount, discoveryCount) =
-            TrainingDataBuilder.BuildExamples(previousResults, allProfiles, discoveryFeedback, seriesEpisodeCounts, genreStudioIdf, libraryItemMetadata, featureMeans, cancellationToken);
-
+        var (examples, organicCount, _, discoveryCount) = TrainingDataBuilder.BuildExamples(scopedResults, allProfiles, discoveryFeedback, seriesEpisodeCounts, genreStudioIdf, libraryItemMetadata, featureMeans, cancellationToken);
+        examples = MergeChoiceHistory(examples, scopedResults, allProfiles, libraryItemMetadata, cancellationToken);
         examples = TrainingMath.FilterEffectiveExamples(examples, DateTime.UtcNow, LearnedScoringStrategy.MinSampleWeight).ToList();
-
-        var positiveCount = examples.Count(e => e.Label > 0.5);
-        // Separate discovery from organic in the log so operators can see whether positive signal comes from actual watched consumption or external Seerr requests.
+        var positiveCount = examples.Count(example => example.Label > .5);
+        var contrastCount = examples.Count(example => example.IsContrastSample);
         _pluginLog.LogInfo(
             LogSource,
-            $"Built {examples.Count} training examples ({positiveCount} positive, " +
-            $"{examples.Count - positiveCount} negative) from {previousResults.Count} users " +
-            $"({organicCount} organic, {randomNegativeCount} random negatives, {discoveryCount} discovery).",
+            $"Built {examples.Count} training examples ({positiveCount} positive, {examples.Count - positiveCount} negative) from {scopedResults.Count} users "
+            + $"({organicCount} organic, {contrastCount} qualified fitting contrasts, {discoveryCount} discovery).",
             _logger);
-
-        return new TrainingBatch(examples, previousResults);
+        return new TrainingBatch(examples, scopedResults);
     }
+
+    private TrainingInputs? PrepareTrainingInputs(IReadOnlyList<RecommendationResult> previousResults, LibraryItemMetadata? metadata, CancellationToken cancellationToken)
+    {
+        var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
+        cancellationToken.ThrowIfCancellationRequested();
+        // The live profile provider excludes deleted/disabled accounts. Cached feedback and
+        // recommendation pools must not reintroduce those users into fitting or contrasts.
+        var activeUserIds = allProfiles.Select(profile => profile.UserId).ToHashSet();
+        var liveUsers = (_watchHistoryService.GetAllUserIds() ?? throw new InvalidOperationException("The enabled user roster is unavailable.")).ToHashSet();
+        if (liveUsers.Any(user => !activeUserIds.Contains(user)))
+        {
+            // A per-user profile read can fail while the account remains enabled.
+            // Do not turn that missing snapshot into erased replay or a partial fit.
+            _pluginLog.LogInfo(LogSource, "Training deferred: an enabled user's watch profile is unavailable; existing models and choice evidence retained.", _logger);
+            return null;
+        }
+
+        allProfiles = new Collection<UserWatchProfile>(allProfiles.Where(profile => liveUsers.Contains(profile.UserId)).ToList());
+        previousResults = ScopePreviousResultsByUser(previousResults, allProfiles);
+        if (metadata?.AllowedItemIds is { } allowed)
+        {
+            previousResults = ScopePreviousResults(previousResults, allowed);
+        }
+
+        return new TrainingInputs(allProfiles, previousResults);
+    }
+
+    internal static IReadOnlyList<RecommendationResult> ScopePreviousResultsByUser(IReadOnlyList<RecommendationResult> previousResults, Collection<UserWatchProfile> profiles)
+    {
+        var profilesByUser = profiles.ToDictionary(profile => profile.UserId);
+        return previousResults.Where(result => profilesByUser.ContainsKey(result.UserId)).SelectMany(result => profilesByUser[result.UserId].AccessibleItemIds is { } accessible
+            ? ScopePreviousResults([result], accessible)
+            : new[] { result }).ToArray();
+    }
+
+    private List<TrainingExample> MergeChoiceHistory(List<TrainingExample> examples, IReadOnlyList<RecommendationResult> previousResults, Collection<UserWatchProfile> allProfiles, LibraryItemMetadata? libraryItemMetadata, CancellationToken cancellationToken)
+    {
+        if (ChoiceHistory is null)
+        {
+            return examples;
+        }
+
+        var profilesByUser = allProfiles.ToDictionary(profile => profile.UserId);
+        var activeUserIds = profilesByUser.Keys.ToHashSet();
+        var titleIds = TrainingDataBuilder.BuildTitleIdLookup(previousResults, allProfiles, libraryItemMetadata);
+        var engaged = allProfiles.SelectMany(profile => RecommendationChoiceBuilder.EngagedTitles(profile, titleIds)
+            .Select(title => (User: profile.UserId, Title: title))).ToHashSet();
+
+        var canUseLibraryItem = ReplayItemPermission(profilesByUser, libraryItemMetadata);
+        var canUseCapturedItem = CapturedItemPermission(profilesByUser, libraryItemMetadata, cancellationToken);
+        var eligible = libraryItemMetadata?.AllowedItemIds is not null && libraryItemMetadata.Value.AllowedTitleKeys is not null
+            ? ChoiceHistory.CaptureEligibleReplayTitles(examples, activeUserIds, canUseLibraryItem!, canUseCapturedItem ?? ((user, item, observation) => observation == TrainingExample.CreateLibraryObservationId(user, item)), cancellationToken)
+            : null;
+        examples = ChoiceHistory.Merge(examples, activeUserIds, DateTime.UtcNow, engaged, eligible, canUseLibraryItem, canUseCapturedItem);
+        // Only the bounded caller wait belongs to fitting; atomic I/O remains managed.
+        if (!ChoiceHistory.SaveAsync(cancellationToken).GetAwaiter().GetResult())
+        {
+            _pluginLog.LogDebug(LogSource, "Observed choices remain in memory; optional replay persistence was unavailable.", _logger);
+        }
+
+        return examples;
+    }
+
+    private static Func<Guid, Guid, bool>? ReplayItemPermission(Dictionary<Guid, UserWatchProfile> profiles, LibraryItemMetadata? metadata)
+    {
+        var libraryIds = metadata?.AllowedItemIds;
+        if (libraryIds is null && metadata?.ExcludedItemIds is null && profiles.Values.All(profile => profile.AccessibleItemIds is null))
+        {
+            return null;
+        }
+
+        var watchedIds = profiles.ToDictionary(pair => pair.Key, pair => pair.Value.WatchedItems.Select(item => item.ItemId).ToHashSet());
+        return (user, item) => item != Guid.Empty && profiles[user].AccessibleItemIds?.Contains(item) != false
+            && metadata?.ExcludedItemIds?.Contains(item) != true && (libraryIds is null || libraryIds.Contains(item) || watchedIds[user].Contains(item));
+    }
+
+    private static Func<Guid, Guid, Guid, bool>? CapturedItemPermission(Dictionary<Guid, UserWatchProfile> profiles, LibraryItemMetadata? metadata, CancellationToken cancellationToken)
+    {
+        if (ReplayTitleKeys(metadata, cancellationToken) is not { } titles)
+        {
+            return (user, item, observation) => observation == TrainingExample.CreateLibraryObservationId(user, item);
+        }
+
+        // Resolve only referenced copies. A permitted duplicate cannot certify the
+        // provider identity recorded for another physical item. Parent aliases are
+        // build-local and lazy, never guessed from another user's history or a title.
+        var parents = profiles.ToDictionary(pair => pair.Key, pair => new Lazy<Dictionary<Guid, Guid>>(() => CaptureParentAliases(pair.Value, cancellationToken)));
+        return (user, item, observation) => CapturedIdentityMatches(user, item, observation, titles, metadata?.ExcludedTitleKeys, parents);
+    }
+
+    private static IReadOnlyDictionary<Guid, (int TmdbId, string MediaType)>? ReplayTitleKeys(LibraryItemMetadata? metadata, CancellationToken cancellationToken)
+    {
+        if (metadata?.TitleKeysByItemId is { } typed)
+        {
+            return typed;
+        }
+
+        if (metadata?.TmdbIds is not { } ids || metadata.Value.AllowedTitleKeys is not { } allowed)
+        {
+            return null;
+        }
+
+        // Legacy metadata can certify a type only when its captured typed catalog
+        // has one unambiguous namespace. Construct this once, never per user.
+        var types = new Dictionary<int, string?>();
+        foreach (var title in allowed)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (types.TryGetValue(title.TmdbId, out var previous) && previous != title.MediaType)
+            {
+                types[title.TmdbId] = null;
+            }
+            else
+            {
+                types.TryAdd(title.TmdbId, title.MediaType);
+            }
+        }
+
+        var result = new Dictionary<Guid, (int, string)>();
+        foreach (var pair in ids)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (pair.Value > 0 && types.GetValueOrDefault(pair.Value) is { } type)
+            {
+                result[pair.Key] = (pair.Value, type);
+            }
+        }
+
+        return result;
+    }
+
+    private static Dictionary<Guid, Guid> CaptureParentAliases(UserWatchProfile profile, CancellationToken cancellationToken)
+    {
+        var parents = new Dictionary<Guid, Guid>();
+        foreach (var row in profile.WatchedItems.Where(row => row.SeriesId.GetValueOrDefault() != Guid.Empty))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            parents[row.ItemId] = row.SeriesId.GetValueOrDefault();
+        }
+
+        return parents;
+    }
+
+    private static bool CapturedIdentityMatches(Guid user, Guid item, Guid observation, IReadOnlyDictionary<Guid, (int TmdbId, string MediaType)> titles, IReadOnlySet<(int TmdbId, string MediaType)>? excluded, Dictionary<Guid, Lazy<Dictionary<Guid, Guid>>> parents)
+    {
+        var titleItem = item;
+        if (!titles.TryGetValue(titleItem, out var title))
+        {
+            titleItem = parents[user].Value.GetValueOrDefault(item, item);
+            if (!titles.TryGetValue(titleItem, out title))
+            {
+                // Missing current provider provenance is not proof for a captured
+                // provider key, even when an accessible duplicate shares that key.
+                return observation == TrainingExample.CreateLibraryObservationId(user, titleItem);
+            }
+        }
+
+        return excluded?.Contains(title) != true
+            && (observation == TrainingExample.CreateProviderObservationId(user, title.TmdbId, title.MediaType)
+                || observation == TrainingExample.CreateLibraryObservationId(user, titleItem));
+    }
+
+    private static DiscoveryFeedbackResult ScopeDiscoveryFeedback(DiscoveryFeedbackResult result, UserWatchProfile profile, LibraryItemMetadata? metadata, CancellationToken cancellationToken)
+    {
+        var referenced = result.Entries.Select(DiscoveryKey).ToHashSet();
+        var excluded = referenced.Where(key => metadata?.ExcludedTitleKeys?.Contains(key) == true).ToHashSet();
+        if (profile.AccessibleItemIds is { } accessible && metadata?.TitleKeysByItemId is { } titles)
+        {
+            var visible = new HashSet<(int, string)>();
+            foreach (var pair in titles)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!referenced.Contains(pair.Value))
+                {
+                    continue;
+                }
+
+                if (accessible.Contains(pair.Key) && metadata.Value.AllowedItemIds?.Contains(pair.Key) != false)
+                {
+                    visible.Add(pair.Value);
+                }
+                else
+                {
+                    excluded.Add(pair.Value);
+                }
+            }
+
+            excluded.ExceptWith(visible);
+        }
+
+        return new DiscoveryFeedbackResult
+        {
+            UserId = result.UserId, UserName = result.UserName,
+            Entries = result.Entries.Where(entry => !excluded.Contains(DiscoveryKey(entry))).ToList()
+        };
+    }
+
+    private static (int TmdbId, string MediaType) DiscoveryKey(DiscoveryFeedbackEntry entry)
+        => (entry.TmdbId, string.Equals(entry.MediaType?.Trim(), "tv", StringComparison.OrdinalIgnoreCase) ? "tv" : "movie");
 
     /// <summary>
     ///     Trains a single strategy on the supplied examples: reserves a held-out validation split, trains,
@@ -440,6 +663,11 @@ internal sealed class TrainingService : IDisposable
         }
 
         // Pass the held-out slice into the strategy so the metrics it publishes (used by the ensemble's quality gate + trend analyser) come from the same out-of-sample set the log line below reports.
+        if (trainSplit.Count == 0)
+        {
+            return false;
+        }
+
         var heldOutForMetrics = heldOutSplit.Count >= 2 ? heldOutSplit : null;
         var trained = strategy switch
         {
@@ -627,4 +855,6 @@ internal sealed class TrainingService : IDisposable
     }
 
     private sealed record TrainingBatch(List<TrainingExample> Examples, IReadOnlyList<RecommendationResult> PreviousResults);
+
+    private sealed record TrainingInputs(Collection<UserWatchProfile> Profiles, IReadOnlyList<RecommendationResult> PreviousResults);
 }

@@ -82,6 +82,36 @@ public class ArrIntegrationServiceTests : IDisposable
         Assert.Contains("URL", message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task BulkCatalogMapsOptionalMetadataWithoutLosingExistingIdentityAndAvailability(bool movie)
+    {
+        const string json = """[{"title":"Title","tmdbId":123,"tvdbId":456,"imdbId":"tt123456","hasFile":true,"genres":["Animation","Children"],"seriesType":"anime","overview":"provider synopsis","statistics":{"episodeFileCount":7}}]""";
+        var handler = CreateMockHandler(HttpStatusCode.OK, json);
+        var service = CreateService(handler.Object);
+        if (movie)
+        {
+            var item = Assert.Single((await service.GetRadarrMoviesAsync("http://localhost:7878", "testapikey", cancellationToken: TestContext.Current.CancellationToken))!);
+            Assert.Equal(123, item.TmdbId);
+            Assert.Equal("tt123456", item.ImdbId);
+            Assert.True(item.HasFile);
+            Assert.Equal(["Animation", "Children"], item.Genres);
+            Assert.Equal("provider synopsis", item.Overview);
+        }
+        else
+        {
+            var item = Assert.Single((await service.GetSonarrSeriesAsync("http://localhost:8989", "testapikey", cancellationToken: TestContext.Current.CancellationToken))!);
+            Assert.Equal(123, item.TmdbId);
+            Assert.Equal(456, item.TvdbId);
+            Assert.Equal("tt123456", item.ImdbId);
+            Assert.Equal(7, item.EpisodeFileCount);
+            Assert.Equal("anime", item.SeriesType);
+            Assert.Equal(["Animation", "Children"], item.Genres);
+            Assert.Equal("provider synopsis", item.Overview);
+        }
+    }
+
     [Fact]
     public async Task TestConnection_EmptyApiKey_ReturnsFalse()
     {
