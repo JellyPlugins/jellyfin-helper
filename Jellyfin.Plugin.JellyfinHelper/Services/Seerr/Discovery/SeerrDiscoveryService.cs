@@ -543,7 +543,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         var profiledUsers = activeProfiles.Select(profile => profile.UserId).ToHashSet();
-        var unavailableProfiles = (enabledUsers ?? []).Where(user => !profiledUsers.Contains(user)).Distinct().ToArray();
+        var unavailableProfiles = (enabledUsers []).Where(user => !profiledUsers.Contains(user)).Distinct().ToArray();
 
         // Build exclusion set from the Jellyfin library plus the configured Arr instances
         ExclusionCommitStamp? exclusionScope = null;
@@ -3123,7 +3123,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var original = candidate.TitleMetadata;
         var alias = _titleMetadataCache!.CurrentProjection(config, original, language);
         candidate.TitleMetadata = alias;
-        var cached = _titleMetadataCache!.GetForLanguage(config, candidate.Id, candidate.MediaType, 0, null, language);
+        var cached = _titleMetadataCache.GetForLanguage(config, candidate.Id, candidate.MediaType, 0, null, language);
         var compatible = alias is not null && alias.MediaType == candidate.MediaType && (alias.TmdbId <= 0 || alias.TmdbId == candidate.Id)
             && (cached is null || TitleProviderIdentity.Compatible(cached, alias));
         if (original is not null && !compatible)
