@@ -543,7 +543,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         var profiledUsers = activeProfiles.Select(profile => profile.UserId).ToHashSet();
-        var unavailableProfiles = (enabledUsers []).Where(user => !profiledUsers.Contains(user)).Distinct().ToArray();
+        var unavailableProfiles = enabledUsers.Where(user => !profiledUsers.Contains(user)).Distinct().ToArray();
 
         // Build exclusion set from the Jellyfin library plus the configured Arr instances
         ExclusionCommitStamp? exclusionScope = null;
