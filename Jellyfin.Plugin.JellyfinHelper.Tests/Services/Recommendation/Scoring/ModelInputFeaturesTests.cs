@@ -1,5 +1,9 @@
 using System.Text.Json;
+using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
+using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
@@ -7,6 +11,50 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 /// <summary>Exact v6 dimensions, fitting-only context means and detached known-versus-missing model inputs.</summary>
 public sealed class ModelInputFeaturesTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EveryExternalFittingCoordinateAndInteractionMatchesInferenceWithFreshOrRetainedMeans(bool retainedMeans)
+    {
+        var now = DateTime.UtcNow;
+        CreditMetadataSnapshot Credits(Guid owner) => new()
+        {
+            SourceItemId = owner,
+            Cast = new() { Complete = true, AcquiredAtUtc = now.AddDays(-5), People = [new() { Name = "Actor", Kind = PersonKind.Actor, Identities = [new("tmdb", "42")], BillingWeight = 1 }] },
+            Crew = new() { Complete = true, AcquiredAtUtc = now.AddDays(-5), People = [] }
+        };
+        var profile = new UserWatchProfile
+        {
+            WatchedItems = [new() { ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, Genres = ["Drama"], LastPlayedDate = now.AddDays(-1), Credits = Credits(Guid.Empty) }]
+        };
+        var genres = new Dictionary<string, double> { ["Drama"] = 1 };
+        var exposure = PreferenceBuilder.BuildGenreExposureAnalysis(genres, profile);
+        var prior = retainedMeans ? Enumerable.Repeat(.7, 41).ToArray() : null;
+        var observed = ExternalCandidateFeatureBuilder.Build(new() { Id = 700, MediaType = "movie", GenreIds = [18], VoteAverage = 7, Popularity = 80, KnownPeople = ["Actor"], Credits = Credits(Guid.Empty) }, genres, ["Actor"], 2000, exposure, profile, prior);
+        var missing = ExternalCandidateFeatureBuilder.Build(new() { Id = 701, MediaType = "movie", GenreIds = [18] }, genres, ["Actor"], 2000, exposure, profile, prior);
+        var holdout = observed.Copy();
+        holdout.PeopleSimilarity = 1;
+        TrainingExample[] examples = [new() { Features = observed }, new() { Features = missing }, new() { Features = holdout }];
+        var originals = examples.Select(row => JsonSerializer.Serialize(row.Features)).ToArray();
+        var vectors = examples.Select(row => row.Features.ToModelVector(prior)).ToArray();
+        var means = ModelInputFeatures.FitImputation(examples, [0, 1], prior);
+        ModelInputFeatures.ApplyMissing(examples, vectors, means);
+        for (var index = 0; index < examples.Length; index++)
+        {
+            Assert.Equal(examples[index].Features.ToModelVector(means), vectors[index]);
+            Assert.Equal(41, vectors[index].Length);
+        }
+
+        Assert.Equal(originals, examples.Select(row => JsonSerializer.Serialize(row.Features)));
+        Assert.Equal(retainedMeans ? .7 : .5, means[(int)FeatureIndex.CombinedCriticScore]);
+        Assert.Equal(observed.PeopleSimilarity, means[(int)FeatureIndex.PeopleSimilarity]);
+        Assert.Equal(missing.GenreSimilarity * vectors[1][(int)FeatureIndex.CollaborativeScore], vectors[1][(int)FeatureIndex.GenreCollabInteraction]);
+        Assert.Equal(missing.GenreSimilarity * vectors[1][(int)FeatureIndex.CombinedCriticScore], vectors[1][(int)FeatureIndex.GenreCriticInteraction]);
+        Assert.False(missing.HasRatingMetadata);
+        Assert.False(missing.HasPopularityMetadata);
+        if (prior is not null) Assert.All(prior, value => Assert.Equal(.7, value));
+    }
+
     [Theory]
     [InlineData(40)]
     [InlineData(42)]

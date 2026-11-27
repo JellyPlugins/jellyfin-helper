@@ -25,6 +25,86 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     private readonly DiscoveryCacheService _cache;
     private readonly PerUserEnsembleRegistry _perUserRegistry;
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancellationOrSourceWithdrawalAfterOriginalAdmissionRetiresOnlyTheProvenUnsubmittedAttempt(bool sourceChanges)
+    {
+        var directory = Path.Join(Path.GetTempPath(), "opencode", "unsent-original-" + Guid.NewGuid().ToString("N"));
+        var scope = SeerrDiscoveryService.RequestSourceScope(Plugin.Instance!.Configuration)!;
+        var owner = Guid.NewGuid();
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var prepared = store.PrepareRequestedCard(owner, new DiscoveryRecommendation { TmdbId = 1234, MediaType = "movie", ScoringFeatures = new CandidateFeatures() }, DateTime.UtcNow.AddMinutes(-1), scope);
+        var sends = 0;
+        var submission = new SeerrDiscoveryService.CapturedSubmission(1234, "movie", null, null, null, null, scope)
+        {
+            BeforeSend = () =>
+            {
+                store.MarkPreparedSubmission(prepared);
+                if (sourceChanges) Plugin.Instance.Configuration.SeerrUrl = "https://other.example.test";
+                else cancellation.Cancel();
+            },
+            SendStarted = () => sends++
+        };
+        try
+        {
+            if (sourceChanges)
+            {
+                Assert.False((await _sut.SubmitCapturedRequestAsync(submission, cancellation.Token)).Success);
+            }
+            else
+            {
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => _sut.SubmitCapturedRequestAsync(submission, cancellation.Token));
+            }
+            Assert.Equal(0, sends);
+            Assert.DoesNotContain(_handler.Requests, request => request.Method == HttpMethod.Post);
+            Assert.Contains((1234, "movie"), store.GetPreparedRequestItems(owner, scope));
+            store.FinishPreparedAttempt(prepared, submissionUncertain: false, definitelyUnaccepted: true);
+            Assert.Empty(store.GetPreparedRequestItems(owner, scope));
+            Assert.Empty(store.GetPendingRequestedItems(owner));
+            Assert.Empty(store.LoadAll().SelectMany(result => result.Entries));
+        }
+        finally
+        {
+            store.Dispose();
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ASourceSwitchAtReceiptAcquisitionCannotAdmitAnIdentityRequestForTheOldServer()
+    {
+        var directory = Path.Join(Path.GetTempPath(), "opencode", "scoped-admission-" + Guid.NewGuid().ToString("N"));
+        var owner = Guid.NewGuid();
+        var source = SeerrDiscoveryService.RequestSourceScope(Plugin.Instance!.Configuration)!;
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
+        {
+            ReceiptTimeProvider = new AdmissionClock(() => Plugin.Instance.Configuration.SeerrUrl = "https://other.example.test")
+        };
+        try
+        {
+            Assert.False(await store.RecordRequestedForSourceAsync(owner, 1234, "movie", source, TestContext.Current.CancellationToken));
+            Assert.Empty(store.GetRequestedItems(owner));
+            Assert.Empty(store.GetPendingRequestedItems(owner));
+            Assert.Empty(store.LoadAll());
+        }
+        finally
+        {
+            store.Dispose();
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private sealed class AdmissionClock(Action action) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow()
+        {
+            action();
+            return DateTimeOffset.UtcNow;
+        }
+    }
+
     public SeerrDiscoveryServiceHttpTests()
     {
         ControllerTestFactory.InitializePluginInstance();
@@ -149,10 +229,11 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    public async Task NativeReconciliationRestoresThePreparedOriginalWithoutACachedDeliveryAfterRestart(bool completedIdentity, bool failConfirmation)
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, true)]
+    public async Task NativeReconciliationRestoresThePreparedOriginalWithoutACachedDeliveryAfterRestart(bool completedIdentity, bool failConfirmation, bool sourceChanges)
     {
         var directory = Path.Join(Path.GetTempPath(), "jfh-native-prepared-" + Guid.NewGuid().ToString("N"));
         var user = Guid.NewGuid();
@@ -178,6 +259,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
 
         var retry = new ControlledWaitTimeProvider();
         var offline = failConfirmation;
+        var writes = 0;
         using var restored = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
         {
             RetryTimeProvider = retry,
@@ -185,6 +267,8 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
             {
                 if (offline) throw new IOException("accepted original confirmation unavailable");
                 Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+                Interlocked.Increment(ref writes);
+                if (sourceChanges) Plugin.Instance.Configuration.SeerrApiKey = "changed-after-confirmation";
             }
         };
         try
@@ -197,7 +281,8 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
             library.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
             var service = new SeerrDiscoveryService(_httpFactoryMock.Object, Mock.Of<IWatchHistoryService>(), Mock.Of<IArrIntegrationService>(), library.Object, _perUserRegistry, _cache, restored,
                 Mock.Of<IPluginLogService>(), TestMockFactory.CreateSecretProtector(), TestMockFactory.CreateVirtualItemDetector(), Mock.Of<ILogger<SeerrDiscoveryService>>());
-            Assert.Equal(failConfirmation ? 0 : 1, await service.ReconcileRequestedItemsAsync(user, TestContext.Current.CancellationToken));
+            Assert.Equal(failConfirmation || sourceChanges ? 0 : 1, await service.ReconcileRequestedItemsAsync(user, TestContext.Current.CancellationToken));
+            if (sourceChanges) Assert.Equal(1, writes);
             if (failConfirmation)
             {
                 Assert.Throws<IOException>(() => restored.LoadAll());

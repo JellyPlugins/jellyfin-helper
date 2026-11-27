@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -15,6 +16,157 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 public sealed class CreditRootContractsTests
 {
     private static readonly DateTime Clock = new(2026, 11, 20, 20, 0, 0, DateTimeKind.Utc);
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AScopedImdbBindingCanSupplyCreditsWithoutRewritingNativeProviderIdsOrAcceptingAConflict(bool conflict)
+    {
+        var item = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["Imdb"] = "tt123" } };
+        var native = CreditMetadataCapture.Native(item, null, Clock);
+        var metadata = new TitleMetadataSnapshot
+        {
+            TmdbId = 77, ImdbId = conflict ? "tt456" : "tt123", Credits = Snapshot(Guid.Empty) with { TmdbId = 77, MediaType = "movie" }, FetchedAtUtc = Clock
+        };
+        var resolved = CreditMetadataCapture.WithAvailableTitleMetadata(item, native, metadata);
+        Assert.Equal(item.Id, resolved.SourceItemId);
+        Assert.Equal(conflict ? 0 : 77, resolved.TmdbId);
+        if (conflict) Assert.Null(resolved.Cast);
+        else Assert.NotEmpty(resolved.People());
+        Assert.Equal(0, native.TmdbId);
+        Assert.Null(native.Cast);
+        Assert.False(item.ProviderIds.ContainsKey("Tmdb"));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void CachedProviderCreditsComplementOnlyUnavailableSameTitleNativeFields(bool knownEmpty, bool wrongTitle)
+    {
+        var item = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "77" } };
+        var native = CreditMetadataCapture.Native(item, knownEmpty ? [] : null, Clock);
+        var detail = new SeerrMediaDetailResponse
+        {
+            Id = wrongTitle ? 78 : 77,
+            Credits = new SeerrCredits
+            {
+                Cast = [new SeerrCastMember { Id = 1, Name = "Actor", Order = 0 }],
+                Crew = [new SeerrCrewMember { Id = 2, Name = "Writer", Job = "Writer" }]
+            }
+        };
+        var metadata = TitleMetadataSnapshot.FromDetail(detail, "movie", Clock.AddHours(-1));
+        var resolved = CreditMetadataCapture.WithAvailableTitleMetadata(native, metadata);
+        Assert.Equal(item.Id, resolved.SourceItemId);
+        Assert.Equal(77, resolved.TmdbId);
+        if (wrongTitle)
+        {
+            Assert.Null(resolved.Cast);
+        }
+        else if (knownEmpty)
+        {
+            Assert.Empty(resolved.People());
+        }
+        else
+        {
+            Assert.Equal("Actor", Assert.Single(resolved.People()).Name);
+            Assert.Equal("Writer", Assert.Single(resolved.People(writers: true)).Name);
+            Assert.Equal(Clock.AddHours(-1), resolved.Cast!.AcquiredAtUtc);
+            Assert.Equal(Clock.AddHours(-1), resolved.Crew!.AcquiredAtUtc);
+        }
+
+        Assert.Equal(knownEmpty ? Clock : (DateTime?)null, native.Cast?.AcquiredAtUtc);
+        var roundtrip = JsonSerializer.Deserialize<TitleMetadataSnapshot>(JsonSerializer.Serialize(metadata))!;
+        Assert.Equal(metadata.Credits!.Cast!.AcquiredAtUtc, roundtrip.Credits!.Cast!.AcquiredAtUtc);
+        Assert.Equal(detail.Id, roundtrip.Credits.TmdbId);
+    }
+
+    [Fact]
+    public void KnownEmptyNativeCreditsStayAuthoritativeWhenTheProviderComplementArrivesLater()
+    {
+        var item = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "77" }, ProductionLocations = null! };
+        var native = CreditMetadataCapture.Native(item, [], Clock.AddHours(-2));
+        var detail = new SeerrMediaDetailResponse
+        {
+            Id = 77,
+            Credits = new SeerrCredits { Cast = [new SeerrCastMember { Id = 1, Name = "Actor", Order = 0 }], Crew = [] }
+        };
+        var metadata = TitleMetadataSnapshot.FromDetail(detail, "movie", Clock.AddHours(-1));
+        var resolved = CreditMetadataCapture.WithAvailableTitleMetadata(native, metadata);
+        Assert.Empty(resolved.People());
+        Assert.True(resolved.Cast!.Complete);
+        Assert.Equal(Clock.AddHours(-2), resolved.Cast.AcquiredAtUtc);
+    }
+
+    [Fact]
+    public void ProviderCountryFallbackKeepsTheFieldTimeAndDoesNotOverrideAnObservedNativeEmpty()
+    {
+        var item = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "77" }, ProductionLocations = null! };
+        var provider = new TitleMetadataSnapshot { TmdbId = 77, ProductionCountries = ["JP"], FetchedAtUtc = Clock.AddDays(-1) };
+        var unknown = CreditMetadataCapture.Native(item, null, Clock);
+        var filled = CreditMetadataCapture.WithAvailableTitleMetadata(unknown, provider);
+        Assert.Equal(new[] { "JP" }, filled.ProductionCountries!.Value);
+        Assert.Equal(provider.FetchedAtUtc, filled.CountriesAcquiredAtUtc);
+        Assert.Null(filled.At(provider.FetchedAtUtc.AddTicks(-1)).ProductionCountries);
+        item.ProductionLocations = [];
+        var empty = CreditMetadataCapture.WithAvailableTitleMetadata(CreditMetadataCapture.Native(item, null, Clock), provider);
+        Assert.Empty(empty.ProductionCountries!.Value);
+        Assert.Equal(Clock, empty.CountriesAcquiredAtUtc);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SameTitleMetadataCannotLaunderCreditsFromADifferentNestedTitle(bool wrongMediaType)
+    {
+        var item = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "77" }, ProductionLocations = null! };
+        var native = CreditMetadataCapture.Native(item, null, Clock);
+        var provider = TitleMetadataSnapshot.FromDetail(new SeerrMediaDetailResponse
+        {
+            Id = 77, Credits = new SeerrCredits { Cast = [new() { Id = 1, Name = "Other title's actor", Order = 0 }], Crew = [] }
+        }, "movie", Clock.AddHours(-1));
+        var invalidCredits = provider.Credits! with { TmdbId = wrongMediaType ? 77 : 78, MediaType = wrongMediaType ? "tv" : "movie" };
+        var metadata = provider with { Credits = invalidCredits, ProductionCountries = ["JP"] };
+        var resolved = CreditMetadataCapture.WithAvailableTitleMetadata(item, native, metadata);
+        Assert.Equal(item.Id, resolved.SourceItemId);
+        Assert.Equal(77, resolved.TmdbId);
+        Assert.Null(resolved.Cast);
+        Assert.Null(resolved.Crew);
+        Assert.Empty(resolved.People());
+        Assert.Equal(new[] { "JP" }, resolved.ProductionCountries!.Value);
+        Assert.Equal(provider.FetchedAtUtc, resolved.CountriesAcquiredAtUtc);
+        Assert.Same(invalidCredits, metadata.Credits);
+        Assert.Null(native.Cast);
+        Assert.Null(native.ProductionCountries);
+    }
+
+    [Theory]
+    [InlineData(false, false, .8)]
+    [InlineData(true, false, .8)]
+    [InlineData(true, true, .5)]
+    public void LegacyNeighbourAndDirectPeopleUseOneResolvedPredictionTimeCreditSource(bool dtoCredits, bool future, double expectedNeighbour)
+    {
+        var user = Guid.NewGuid();
+        var target = Guid.NewGuid();
+        var prior = Row(Guid.NewGuid(), Clock.AddDays(-3));
+        var targetCredits = Snapshot(target);
+        if (future) targetCredits = targetCredits with { Cast = targetCredits.Cast! with { AcquiredAtUtc = Clock.AddDays(1) } };
+        var rec = new RecommendedItem { ItemId = target, ItemType = "Movie", Genres = ["Drama"], DateCreated = Clock.AddDays(-5), Credits = dtoCredits ? targetCredits : null };
+        var previous = new RecommendationResult { UserId = user, GeneratedAt = Clock, Recommendations = [rec] };
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = [prior] };
+        var metadata = new LibraryItemMetadata(new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<Guid>>())
+        {
+            Credits = new Dictionary<Guid, CreditMetadataSnapshot> { [prior.ItemId] = prior.Credits!, [target] = Snapshot(target) }
+        };
+        var example = TrainingDataBuilder.BuildExamples([previous], [profile], null, null, null, metadata, null, TestContext.Current.CancellationToken).Examples
+            .Single(row => row.ObservationId == TrainingExample.CreateLibraryObservationId(user, target) && row.GeneratedAtUtc == Clock);
+        Assert.Equal(expectedNeighbour, example.Features.ContentNearestNeighborScore, 12);
+        Assert.Equal(!future, example.Features.HasPeopleMetadata);
+        Assert.Equal(future ? 0 : .2, example.Features.PeopleSimilarity, 12);
+        Assert.Equal(Clock, example.GeneratedAtUtc);
+        Assert.Equal(dtoCredits ? targetCredits : null, rec.Credits);
+        Assert.Null(rec.ScoringFeatures);
+    }
 
     [Fact]
     public void OrganicCapturedCreditsDoNotDependOnRecommendationPublication()
@@ -46,6 +198,7 @@ public sealed class CreditRootContractsTests
         Assert.True(examples.Single().Features.PeopleSimilarity > 0);
         Assert.True(examples.Single().Features.WriterAffinity > 0);
         Assert.Equal(1, examples.Single().Features.BillingWeightedPeople);
+        Assert.Equal(.8, examples.Single().Features.ContentNearestNeighborScore, 12);
     }
 
     [Fact]
@@ -161,8 +314,10 @@ public sealed class CreditRootContractsTests
         Assert.Equal(new[] { "Guest", "Regular" }, combined.Cast!.People!.Value.Select(person => person.Name));
         Assert.True(combined.Cast.Complete);
         Assert.Equal(datedParent ? Clock.AddMinutes(-1) : (DateTime?)null, combined.Cast.AcquiredAtUtc);
-        Assert.Equal("Guest", Assert.Single(own.Cast.People.Value).Name);
-        Assert.Equal("Regular", Assert.Single(parent.Cast.People.Value).Name);
+        var ownPeople = Assert.IsType<ImmutableArray<PersonCredit>>(Assert.IsType<CreditField>(own.Cast).People);
+        var parentPeople = Assert.IsType<ImmutableArray<PersonCredit>>(Assert.IsType<CreditField>(parent.Cast).People);
+        Assert.Equal("Guest", Assert.Single(ownPeople).Name);
+        Assert.Equal("Regular", Assert.Single(parentPeople).Name);
 
         row.SeriesCredits = parent with { Cast = null };
         Assert.Same(own.Cast, CreditPreferenceProfile.Resolve(row)!.Cast);

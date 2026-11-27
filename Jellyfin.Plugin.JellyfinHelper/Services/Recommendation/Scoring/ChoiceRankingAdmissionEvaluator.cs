@@ -102,7 +102,8 @@ internal static class ChoiceRankingAdmissionEvaluator
             .Select(group => EnsembleAdmissionEvaluator.SelectObservationView(group, referenceTime))
             .Where(example => example.Label > 0.5
                 && example.ComputeEffectiveWeight(referenceTime) >= LearnedScoringStrategy.MinSampleWeight
-                && example.Choice?.IsValid(example.ObservationId, referenceTime) == true)
+                && example.Features is { } features && example.Choice is { } choice && choice.IsValid(example.ObservationId, referenceTime)
+                && choice.HasCompatibleDerivation(features.FeatureDerivationVersion))
             .Select(example => new ChoiceRow(
                 example.UserId,
                 example.ObservationId,

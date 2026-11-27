@@ -66,8 +66,8 @@ public sealed class RecommendationPlaylistServiceTests : IDisposable
         {
             var json = System.Text.Json.JsonSerializer.Serialize(attempt, Jellyfin.Plugin.JellyfinHelper.Services.JsonDefaults.Options);
             var path = Path.Join(_recoveryDirectory, attempt.Owner.ToString("N") + ".json");
-            File.WriteAllText(path, json + new string(' ', 256 * 1024 - System.Text.Encoding.UTF8.GetByteCount(json)), new System.Text.UTF8Encoding(false));
-            Assert.Equal(256 * 1024, new FileInfo(path).Length);
+            File.WriteAllText(path, json + new string(' ', 256 * 1024 - 32 - System.Text.Encoding.UTF8.GetByteCount(json)), new System.Text.UTF8Encoding(false));
+            Assert.Equal(256 * 1024 - 32, new FileInfo(path).Length);
         }
 
         PlaylistCreationJournal? journal = null;
@@ -84,7 +84,7 @@ public sealed class RecommendationPlaylistServiceTests : IDisposable
             Assert.Throws<IOException>(() => journal.RecordMarked(firstOwner, attempts[0].Id));
             Assert.False(journal.Get(firstOwner)!.Marked);
             Assert.Throws<IOException>(() => journal.Begin(Guid.NewGuid(), new HashSet<Guid>()));
-            Assert.Equal(64L * 1024 * 1024, Directory.GetFiles(_recoveryDirectory, "*.json").Sum(path => new FileInfo(path).Length));
+            Assert.Equal(64L * 1024 * 1024 - 256 * 32, Directory.GetFiles(_recoveryDirectory, "*.json").Sum(path => new FileInfo(path).Length));
         }
         else
         {
@@ -191,9 +191,9 @@ public sealed class RecommendationPlaylistServiceTests : IDisposable
     {
         var journal = new PlaylistCreationJournal(_recoveryDirectory);
         var owner = Guid.NewGuid();
-        var ids = Enumerable.Range(0, 4096).Select(_ => Guid.NewGuid()).ToHashSet();
+        var ids = Enumerable.Range(0, 4095).Select(_ => Guid.NewGuid()).ToHashSet();
         var attempt = journal.Begin(owner, ids);
-        Assert.Equal(4096, attempt.BeforeIds.Length);
+        Assert.Equal(4095, attempt.BeforeIds.Length);
         Assert.InRange(new FileInfo(Assert.Single(Directory.GetFiles(_recoveryDirectory, "*.json"))).Length, 1, 256 * 1024);
         Assert.Throws<IOException>(() => journal.Begin(owner, new HashSet<Guid>()));
         Assert.Throws<IOException>(() => journal.RecordReturned(owner, attempt.Id, ids.First()));
@@ -203,6 +203,60 @@ public sealed class RecommendationPlaylistServiceTests : IDisposable
         Assert.Throws<IOException>(() => journal.Begin(Guid.NewGuid(), ids.Append(Guid.NewGuid()).ToHashSet()));
         Assert.True(journal.Complete(owner, attempt.Id));
         Assert.False(journal.Complete(owner, attempt.Id));
+    }
+
+    [Fact]
+    public void RestoredPlaylistGuardsAndPendingAttemptsShareTheSameOwnerLimit()
+    {
+        Directory.CreateDirectory(_recoveryDirectory);
+        var owners = Enumerable.Range(0, 4096).Select(_ => Guid.NewGuid()).ToArray();
+        foreach (var owner in owners)
+        {
+            File.WriteAllText(Path.Join(_recoveryDirectory, owner.ToString("N") + ".guard"), owner.ToString("N"));
+        }
+
+        var attempt = new PlaylistCreationJournal.Attempt(Guid.NewGuid(), Guid.NewGuid(), System.Collections.Immutable.ImmutableArray<Guid>.Empty);
+        var path = Path.Join(_recoveryDirectory, attempt.Owner.ToString("N") + ".json");
+        var contents = System.Text.Json.JsonSerializer.Serialize(attempt, Jellyfin.Plugin.JellyfinHelper.Services.JsonDefaults.Options);
+        File.WriteAllText(path, contents);
+        Assert.Throws<IOException>(() => new PlaylistCreationJournal(_recoveryDirectory));
+        Assert.Equal(contents, File.ReadAllText(path));
+        Assert.Equal(4096, Directory.GetFiles(_recoveryDirectory, "*.guard").Length);
+        File.Delete(path);
+        var permitted = attempt with { Owner = owners[0] };
+        File.WriteAllText(Path.Join(_recoveryDirectory, permitted.Owner.ToString("N") + ".json"), System.Text.Json.JsonSerializer.Serialize(permitted, Jellyfin.Plugin.JellyfinHelper.Services.JsonDefaults.Options));
+        var restored = new PlaylistCreationJournal(_recoveryDirectory);
+        Assert.Equal(permitted.Id, Assert.Single(restored.Pending()).Id);
+        Assert.False(restored.AllowsLegacyDeletion(permitted.Owner, Guid.NewGuid()));
+    }
+
+    [Theory]
+    [InlineData("owner")]
+    [InlineData("duplicate")]
+    [InlineData("empty")]
+    [InlineData("name")]
+    [InlineData("oversize")]
+    [InlineData("budget")]
+    public void InvalidOrUnavailableCleanupGuardsCannotGrantLegacyDeletionPermission(string invalid)
+    {
+        var directory = Path.Join(_recoveryDirectory, "guard-" + invalid);
+        Directory.CreateDirectory(directory);
+        var owner = Guid.NewGuid();
+        var id = Guid.NewGuid();
+        var path = Path.Join(directory, (invalid == "name" ? "invalid" : owner.ToString("N")) + ".guard");
+        var contents = owner.ToString("N");
+        if (invalid == "owner") contents = Guid.NewGuid().ToString("N");
+        if (invalid == "duplicate") contents += "\n" + id.ToString("N") + "\n" + id.ToString("N");
+        if (invalid == "empty") contents += "\n" + Guid.Empty.ToString("N");
+        File.WriteAllText(path, contents, new System.Text.UTF8Encoding(false));
+        if (invalid == "oversize")
+        {
+            using var file = File.OpenWrite(path);
+            file.SetLength(256 * 1024 + 1);
+        }
+
+        Assert.Throws<IOException>(() => new PlaylistCreationJournal(directory, byteBudget: invalid == "budget" ? 31 : PlaylistCreationJournal.MaximumJournalBytes));
+        Assert.True(File.Exists(path));
     }
 
     [Theory]
@@ -551,6 +605,100 @@ public sealed class RecommendationPlaylistServiceTests : IDisposable
     }
 
     [Fact]
+    public void PreCreateInventoryLeavesRoomForOneReplacementAndCompletionPersistsTheLegacyDeletionGuard()
+    {
+        var directory = Path.Join(_recoveryDirectory, "inventory-headroom");
+        var owner = Guid.NewGuid();
+        var baseline = Enumerable.Range(0, 4095).Select(_ => Guid.NewGuid()).ToHashSet();
+        var journal = new PlaylistCreationJournal(directory);
+        var attempt = journal.Begin(owner, baseline);
+        var returned = Guid.NewGuid();
+        Assert.Equal(4096, baseline.Append(returned).Count());
+        journal.RecordReturned(owner, attempt.Id, returned);
+        journal.RecordMarked(owner, attempt.Id);
+        Assert.True(journal.Complete(owner, attempt.Id));
+        var restored = new PlaylistCreationJournal(directory);
+        Assert.Empty(restored.Pending());
+        Assert.False(restored.AllowsLegacyDeletion(owner, Guid.NewGuid()));
+        Assert.Throws<IOException>(() => restored.Begin(Guid.NewGuid(), baseline.Append(returned).ToHashSet()));
+        Assert.Empty(restored.Pending());
+    }
+
+    [Fact]
+    public async Task AHostRegistrationDuringGateReleaseCannotAcquireLegacyNameDeletionPermissionAfterRestart()
+    {
+        var owner = new Jellyfin.Database.Implementations.Entities.User("viewer", "test", "test");
+        var incumbent = new MediaBrowser.Controller.Playlists.Playlist { Id = Guid.NewGuid(), OwnerUserId = owner.Id, Name = RecommendationPlaylistService.BuildPlaylistName(owner.Username) };
+        var late = new MediaBrowser.Controller.Playlists.Playlist { Id = Guid.NewGuid(), OwnerUserId = owner.Id, Name = incumbent.Name };
+        var inventory = new Dictionary<Guid, MediaBrowser.Controller.Playlists.Playlist> { [incumbent.Id] = incumbent };
+        ArrangeOwnedInventory(owner, inventory);
+        new PlaylistCreationJournal(_recoveryDirectory).Begin(owner.Id, new HashSet<Guid> { incumbent.Id });
+        var service = CreateSut(delete: path => { inventory[late.Id] = late; File.Delete(path); });
+        Assert.True(await service.ResolveDeferredCreationAsync(owner.Id, TestContext.Current.CancellationToken));
+        var restarted = CreateSut();
+        await restarted.UpdatePlaylistsForAllUsersAsync([CreateResult(owner.Id, owner.Username, 0)], TestContext.Current.CancellationToken);
+        Assert.Equal(late.Id, Assert.Single(inventory.Keys));
+        Assert.Empty(late.ProviderIds);
+        _libraryManagerMock.Verify(manager => manager.DeleteItem(It.Is<BaseItem>(item => item.Id == late.Id), It.IsAny<DeleteOptions>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(true, false, false, false)]
+    [InlineData(false, false, false, true)]
+    [InlineData(true, true, false, true)]
+    [InlineData(true, false, true, true)]
+    public void ACapturedCleanupSnapshotCannotBorrowAnOlderJournalPermissionForAReusedPlaylistId(bool snapshot, bool managed, bool removeAll, bool deleted)
+    {
+        var owner = new Jellyfin.Database.Implementations.Entities.User("viewer", "test", "test");
+        var reused = new MediaBrowser.Controller.Playlists.Playlist { Id = Guid.NewGuid(), OwnerUserId = owner.Id, Name = RecommendationPlaylistService.BuildPlaylistName(owner.Username) };
+        if (managed) reused.ProviderIds[RecommendationPlaylistService.ManagedOwnerProviderKey] = owner.Id.ToString("N");
+        var journal = new PlaylistCreationJournal(_recoveryDirectory);
+        var attempt = journal.Begin(owner.Id, new HashSet<Guid> { reused.Id });
+        Assert.True(journal.Complete(owner.Id, attempt.Id));
+        Assert.True(journal.AllowsLegacyDeletion(owner.Id, reused.Id));
+        ArrangeOwnedInventory(owner, new Dictionary<Guid, MediaBrowser.Controller.Playlists.Playlist> { [reused.Id] = reused });
+        var service = CreateSut();
+        var removed = (int)typeof(RecommendationPlaylistService).GetMethod("RemoveUserPlaylistsExcept", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(service, [owner.Id, null, TestContext.Current.CancellationToken, false, snapshot ? new HashSet<Guid>() : null, removeAll])!;
+        Assert.Equal(deleted ? 1 : 0, removed);
+        _libraryManagerMock.Verify(manager => manager.DeleteItem(It.Is<BaseItem>(item => item.Id == reused.Id), It.IsAny<DeleteOptions>()), deleted ? Times.Once() : Times.Never());
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void InactiveRollbackRequiresBothACurrentReceiptAndCurrentOwnerInactivity(bool obsolete, bool reenabled)
+    {
+        var owner = new Jellyfin.Database.Implementations.Entities.User("viewer", "test", "test");
+        owner.SetPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled, !reenabled);
+        var playlist = new MediaBrowser.Controller.Playlists.Playlist { Id = Guid.NewGuid(), OwnerUserId = owner.Id };
+        var inventory = new Dictionary<Guid, MediaBrowser.Controller.Playlists.Playlist> { [playlist.Id] = playlist };
+        ArrangeOwnedInventory(owner, inventory);
+        var journal = new PlaylistCreationJournal(_recoveryDirectory);
+        var attempt = journal.Begin(owner.Id, new HashSet<Guid>());
+        journal.RecordReturned(owner.Id, attempt.Id, playlist.Id);
+        playlist.ProviderIds[RecommendationPlaylistService.CreationAttemptProviderKey] = attempt.Id.ToString("N");
+        var service = CreateSut();
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        var receipts = (System.Collections.Concurrent.ConcurrentDictionary<Guid, Guid>)typeof(RecommendationPlaylistService).GetField("_unmarkedReplacements", flags)!.GetValue(service)!;
+        receipts[playlist.Id] = owner.Id;
+        if (obsolete)
+        {
+            var stale = new KeyValuePair<Guid, Guid>(playlist.Id, owner.Id);
+            receipts.TryRemove(playlist.Id, out _);
+            typeof(RecommendationPlaylistService).GetMethod("ClearUnmarkedReplacement", flags)!.Invoke(service, [stale]);
+        }
+        else
+        {
+            typeof(RecommendationPlaylistService).GetMethod("ClearInactiveUnmarkedReplacements", flags)!.Invoke(service, [new HashSet<Guid> { owner.Id }, new HashSet<Guid> { owner.Id }, TestContext.Current.CancellationToken]);
+        }
+
+        _libraryManagerMock.Verify(manager => manager.DeleteItem(It.Is<BaseItem>(item => item.Id == playlist.Id), It.IsAny<DeleteOptions>()), !obsolete && !reenabled ? Times.Once() : Times.Never());
+    }
+
+    [Fact]
     public async Task CreationAdmissionReservesTheReturnedIdentityAndDoesNotCallTheHostWhenOnlyTheBeginStateWouldFit()
     {
         var owner = new Jellyfin.Database.Implementations.Entities.User("viewer", "test", "test");
@@ -565,7 +713,7 @@ public sealed class RecommendationPlaylistServiceTests : IDisposable
         Assert.Equal(1, (await service.UpdatePlaylistsForAllUsersAsync([CreateResult(owner.Id, owner.Username, 1)], TestContext.Current.CancellationToken)).PlaylistsFailed);
         _playlistManagerMock.Verify(manager => manager.CreatePlaylist(It.IsAny<PlaylistCreationRequest>()), Times.Never);
         Assert.Equal(incumbent.Id, Assert.Single(inventory.Keys));
-        var journal = new PlaylistCreationJournal(Path.Join(_recoveryDirectory, "bounded"), byteBudget: complete);
+        var journal = new PlaylistCreationJournal(Path.Join(_recoveryDirectory, "bounded"), byteBudget: complete + 65);
         var attempt = journal.Begin(owner.Id, new HashSet<Guid> { incumbent.Id });
         var returned = journal.RecordReturned(owner.Id, attempt.Id, Guid.NewGuid());
         var marked = journal.RecordMarked(owner.Id, attempt.Id);
@@ -2984,6 +3132,7 @@ public sealed class RecommendationPlaylistServiceTests : IDisposable
         SetupUserManagerSingleUser(userId, "Alice");
 
         var oldPlaylist = BuildFakePlaylist(RecommendationPlaylistService.BuildPlaylistName("Alice"));
+        oldPlaylist.OwnerUserId = userId;
         SetupPlaylistLookup(new[] { oldPlaylist });
 
         var operations = new List<string>();

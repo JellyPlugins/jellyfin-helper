@@ -117,8 +117,9 @@ public sealed class HistoricalLanguageFeaturesTests
         Assert.False(features.HasAudioLanguageEvidence);
         var means = Enumerable.Repeat(.8, CandidateFeatures.FeatureCount).ToArray();
         Assert.Equal(.8, features.ToModelVector(means)[28]);
-        Assert.False(TrainingFeatureComputer.HasLanguageEvidence(["und"], 1));
-        Assert.True(TrainingFeatureComputer.HasLanguageEvidence(["de"], 1, true));
+        var choices = new Dictionary<string, LanguageProfileEntry> { ["de"] = new() { ChosenCount = 1 } };
+        Assert.False(TrainingFeatureComputer.HasLanguageEvidence(["und"], choices));
+        Assert.True(TrainingFeatureComputer.HasLanguageEvidence(["de"], choices, true));
     }
 
     private static WatchedItemInfo Watch(DateTime? date, string language) => new()

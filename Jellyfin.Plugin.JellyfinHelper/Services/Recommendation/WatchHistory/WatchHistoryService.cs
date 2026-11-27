@@ -709,6 +709,16 @@ public sealed class WatchHistoryService : IWatchHistoryService, IDisposable
         }
 
         watchedItem.TitleMetadata = CachedWatchedTitleMetadata(item, watchedItem, metadata);
+        if (item is not Episode)
+        {
+            watchedItem.Credits = CreditMetadataCapture.WithAvailableTitleMetadata(item, ownCredits, watchedItem.TitleMetadata);
+            var supplied = watchedItem.Credits.People().ToArray();
+            watchedItem.PeopleNames = supplied.Select(person => person.Name).ToArray();
+            watchedItem.PeopleWeights = supplied.Select(person => person.BillingWeight).ToArray();
+            watchedItem.WriterNames = watchedItem.Credits.People(writers: true).Select(person => person.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            watchedItem.ProductionCountries = watchedItem.Credits.ProductionCountries?.ToArray() ?? [];
+        }
+
         ApplyCachedGenres(watchedItem);
         profile.WatchedItems.Add(watchedItem);
 
@@ -796,7 +806,8 @@ public sealed class WatchHistoryService : IWatchHistoryService, IDisposable
             return null;
         }
 
-        var snapshot = CreditMetadataCapture.Native(series, ResolveWatchedItemPeople(series), DateTime.UtcNow);
+        var provider = TitleMetadataCache?.Get(_configService.GetConfiguration(), metadata.TmdbIds.GetValueOrDefault(id), "tv", metadata.TvdbIds.GetValueOrDefault(id), metadata.ImdbIds.GetValueOrDefault(id));
+        var snapshot = CreditMetadataCapture.WithAvailableTitleMetadata(series, CreditMetadataCapture.Native(series, ResolveWatchedItemPeople(series), DateTime.UtcNow), provider);
         metadata.SeriesCreditSnapshots[id] = snapshot;
         return snapshot;
     }
@@ -833,7 +844,7 @@ public sealed class WatchHistoryService : IWatchHistoryService, IDisposable
             profile.FavoriteCount++;
         }
 
-        if (item.CommunityRating.HasValue)
+        if (item.CommunityRating.HasValue && (userData.Played || userData.PlayCount > 0 || userData.PlaybackPositionTicks > 0 || userData.IsFavorite))
         {
             ratingSum += item.CommunityRating.Value;
             ratingCount++;

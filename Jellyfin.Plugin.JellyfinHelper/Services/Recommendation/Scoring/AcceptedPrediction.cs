@@ -44,7 +44,9 @@ internal sealed class AcceptedPrediction
     {
         var scale = Mixture.Alpha > alphaMax ? alphaMax / Mixture.Alpha : 1;
         var learned = Mixture.Learned * scale;
-        var neural = Neural is null ? 0 : Math.Min(Mixture.Neural * scale, Math.Min(NeuralCap, alphaMax * EnsembleScoringStrategy.NeuralMaxBetaFraction));
+        var neural = Neural is null || !FeatureDerivationContract.IsCompatible(FeatureDerivationVersion, Neural.FeatureDerivationVersion)
+            ? 0
+            : Math.Min(Mixture.Neural * scale, Math.Min(NeuralCap, alphaMax * EnsembleScoringStrategy.NeuralMaxBetaFraction));
         return new AdmissionMixture(learned, neural);
     }
 

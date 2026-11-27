@@ -13,6 +13,11 @@ internal static class ModelInputFeatures
 
     internal static string Name(int index) => ScoringHelper.GetFeatureName((FeatureIndex)index);
 
+    /// <summary>Creates detached shared priors for unavailable coordinates, never raw zero defaults for a missing rating.</summary>
+    /// <returns>Exact v6 preprocessing defaults, independent of labels or observed outcomes.</returns>
+    internal static double[] CreateImputationDefaults()
+        => new CandidateFeatures { IsExternalCandidate = true, HasPeopleMetadata = false, HasRatingMetadata = false, HasPopularityMetadata = false }.ToModelVector(null);
+
     internal static void Write(CandidateFeatures features, double[] buffer, IReadOnlyList<double>? means, int count)
     {
         if (count != FeatureCount)
@@ -43,7 +48,7 @@ internal static class ModelInputFeatures
         var language = LanguageFeatureImputation.Fit(examples, fitting, prior) ?? prior;
         var credits = CreditFeatureImputation.Fit(examples, fitting, language) ?? language;
         var means = new double[FeatureCount];
-        var defaults = new CandidateFeatures { IsExternalCandidate = true, HasPeopleMetadata = false }.ToModelVector(null);
+        var defaults = CreateImputationDefaults();
         Array.Copy(credits ?? defaults, means, CandidateFeatures.FeatureCount);
         foreach (var index in Enumerable.Range((int)FeatureIndex.ContentFitAffinity, 3))
         {
@@ -57,11 +62,11 @@ internal static class ModelInputFeatures
 
     internal static void ApplyMissing(IReadOnlyList<TrainingExample> examples, double[][] vectors, double[] means)
     {
-        LanguageFeatureImputation.Apply(examples, vectors, means);
-        CreditFeatureImputation.Apply(examples, vectors, means);
         for (var index = 0; index < examples.Count; index++)
         {
-            WriteContext(examples[index].Features, vectors[index], means);
+            // Fold-owned raw vectors must use all of inference's missing-field
+            // replacements and derived interactions before standardization.
+            Write(examples[index].Features, vectors[index], means, FeatureCount);
         }
     }
 

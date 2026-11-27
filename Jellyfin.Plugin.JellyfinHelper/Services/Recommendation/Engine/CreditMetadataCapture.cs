@@ -56,6 +56,67 @@ internal static class CreditMetadataCapture
         };
     }
 
+    /// <summary>Complements unavailable native credit fields from an already scoped same-title provider observation.</summary>
+    /// <param name="item">The original physical library item, including independently supplied provider links.</param>
+    /// <param name="native">Its detached native observation.</param>
+    /// <param name="metadata">The scoped provider projection.</param>
+    /// <returns>A derived same-title observation; native provider IDs and original snapshots remain unchanged.</returns>
+    internal static CreditMetadataSnapshot WithAvailableTitleMetadata(BaseItem item, CreditMetadataSnapshot native, TitleMetadataSnapshot? metadata)
+    {
+        var identity = new TitleMetadataSnapshot
+        {
+            TmdbId = native.TmdbId, MediaType = native.MediaType,
+            TvdbId = TitleProviderIdentity.Tvdb(item), ImdbId = TitleProviderIdentity.Imdb(item)
+        };
+        if (native.SourceItemId != item.Id || metadata is null || !TitleProviderIdentity.Compatible(identity, metadata) || !TitleProviderIdentity.SharesIdentity(identity, metadata))
+        {
+            return native;
+        }
+
+        var bound = native.TmdbId > 0 ? native : native with { TmdbId = metadata.TmdbId };
+        return WithAvailableTitleMetadata(bound, metadata);
+    }
+
+    /// <summary>Complements unavailable fields after a direct typed TMDb binding was established.</summary>
+    /// <param name="native">The actual physical library item's observation; known empty fields remain authoritative.</param>
+    /// <param name="metadata">Current or historical provider metadata from the same validated title.</param>
+    /// <returns>Detached field provenance, never a new network read or a renewed acquisition.</returns>
+    internal static CreditMetadataSnapshot WithAvailableTitleMetadata(CreditMetadataSnapshot native, TitleMetadataSnapshot? metadata)
+    {
+        if (metadata is null || native.TmdbId <= 0 || metadata.TmdbId != native.TmdbId || metadata.MediaType != native.MediaType)
+        {
+            return native;
+        }
+
+        var provider = metadata.Credits;
+        if (provider is not null && (provider.TmdbId != native.TmdbId || provider.MediaType != native.MediaType))
+        {
+            provider = null;
+        }
+
+        provider ??= new CreditMetadataSnapshot { TmdbId = metadata.TmdbId, MediaType = metadata.MediaType };
+        if (metadata.ProductionCountries is { IsDefault: false } countries)
+        {
+            provider = provider with
+            {
+                ProductionCountries = countries,
+                CountriesAcquiredAtUtc = metadata.FieldFetchedAtUtc?.GetValueOrDefault(nameof(TitleMetadataSnapshot.ProductionCountries), metadata.FetchedAtUtc) ?? metadata.FetchedAtUtc
+            };
+        }
+
+        // Native observations stay authoritative: only unavailable fields are complemented by the
+        // scoped provider observation, so a known-empty native cast/crew is never overridden.
+        return native with
+        {
+            Cast = native.Cast ?? provider.Cast,
+            Crew = native.Crew ?? provider.Crew,
+            ProductionCountries = native.ProductionCountries ?? provider.ProductionCountries,
+            CountriesAcquiredAtUtc = native.ProductionCountries is { IsDefault: false }
+                ? native.CountriesAcquiredAtUtc
+                : provider.CountriesAcquiredAtUtc
+        };
+    }
+
     /// <summary>Detaches field presence and valid provider identities from an actual detail acquisition.</summary>
     /// <param name="credits">An observed credit container.</param>
     /// <param name="acquiredAtUtc">Actual response-body acquisition, including retained cache times.</param>

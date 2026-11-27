@@ -135,6 +135,12 @@ public sealed class TrainingExample
     /// <summary>Creates detached replay data without changing original labels, prediction inputs or acquisition time.</summary>
     /// <returns>An independently mutable copy of the original observation and choice snapshots.</returns>
     internal TrainingExample Copy()
+        => Copy(Choice);
+
+    /// <summary>Creates detached replay data while omitting the supplied choice snapshot.</summary>
+    /// <param name="choice">The choice to clone; null omits the choice without dereferencing its features.</param>
+    /// <returns>An independently mutable copy of the original observation without the supplied choice.</returns>
+    internal TrainingExample Copy(RecommendationChoiceEvidence? choice)
         => new()
         {
             UserId = UserId,
@@ -147,7 +153,7 @@ public sealed class TrainingExample
             SampleWeight = SampleWeight,
             GeneratedAtUtc = GeneratedAtUtc,
             Features = Features.Copy(),
-            Choice = Choice?.Copy()
+            Choice = choice?.Copy()
         };
 
     /// <summary>Creates a stable, name-free observation key for one user's interaction with a title.</summary>

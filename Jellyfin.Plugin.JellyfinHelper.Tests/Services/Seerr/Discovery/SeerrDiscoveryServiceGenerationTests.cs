@@ -48,6 +48,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     private const int TmdbGenreTvKids = 10762;
 
     private readonly ScriptedHttpHandler _handler;
+    private readonly Mock<IHttpClientFactory> _httpFactory;
     private readonly Mock<IWatchHistoryService> _history;
     private readonly Mock<IArrIntegrationService> _arr;
     private readonly Mock<IDiscoveryFeedbackStore> _feedbackStore;
@@ -60,6 +61,116 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     private readonly TitleMetadataCache _titleMetadata;
     private readonly ServerConfiguration _serverConfiguration = new() { PreferredMetadataLanguage = "" };
     private readonly OffsetClock _metadataClock = new();
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EveryProfileUsesTheSameConnectionEvenWhenTheLiveSourceChangesAndReturnsBeforeCommit(bool certificates)
+    {
+        var first = NewProfile();
+        var second = NewProfile();
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(first, second));
+        _history.Setup(history => history.GetAllUserIds()).Returns([first.UserId, second.UserId]);
+        var config = Plugin.Instance!.Configuration;
+        config.SeerrSkipCertificateValidation = certificates;
+        var url = config.SeerrUrl;
+        var key = config.SeerrApiKey;
+        var changed = false;
+        var saved = false;
+        var discoverReads = 0;
+        _handler.ResponseOverride = (request, _) =>
+        {
+            Assert.Equal(HttpMethod.Get, request.Method);
+            Assert.Equal(new Uri(url).Host, request.RequestUri!.Host);
+            Assert.Equal(key, Assert.Single(request.Headers.GetValues("X-Api-Key")));
+            var path = request.RequestUri.AbsolutePath;
+            if (path.Contains("/discover/", StringComparison.Ordinal))
+            {
+                discoverReads++;
+                if (!changed)
+                {
+                    changed = true;
+                    config.SeerrUrl = "https://other.example.test";
+                    config.SeerrApiKey = "other-source-key";
+                    config.SeerrSkipCertificateValidation = !certificates;
+                }
+
+                return Task.FromResult(JsonResponse(BuildDiscoverJson([28], Enumerable.Range(601, 30).Select(id => Candidate(id, 8)).ToArray())));
+            }
+
+            return Task.FromResult(JsonResponse(int.TryParse(path.Split('/')[^1], out var id)
+                ? $$"""{"id":{{id}},"genres":[{"id":28,"name":"Action"}],"credits":{"cast":[],"crew":[] } }"""
+                : """{"results":[],"pageInfo":{"results":0}}"""));
+        };
+        _cache.BeforeSaveWait = () =>
+        {
+            Assert.True(changed);
+            saved = true;
+            config.SeerrUrl = url;
+            config.SeerrApiKey = key;
+            config.SeerrSkipCertificateValidation = certificates;
+        };
+        await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
+        Assert.True(saved);
+        Assert.True(discoverReads >= 2);
+        var results = await _cache.LoadAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(new[] { first.UserId, second.UserId }.Order(), results.Select(result => result.UserId).Order());
+        Assert.All(results, result => Assert.NotEmpty(result.Recommendations));
+        Assert.All(results.SelectMany(result => result.Recommendations), item => Assert.InRange(item.TmdbId, 601, 630));
+        var clientName = certificates ? "SeerrDiscoveryInsecure" : "SeerrDiscovery";
+        var changedClientName = certificates ? "SeerrDiscovery" : "SeerrDiscoveryInsecure";
+        _httpFactory.Verify(factory => factory.CreateClient(clientName), Times.AtLeast(2));
+        _httpFactory.Verify(factory => factory.CreateClient(changedClientName), Times.Never);
+        foreach (var user in new[] { first.UserId, second.UserId })
+        {
+            _feedbackStore.Verify(store => store.RecordGeneratedAsync(user, It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Once);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task FreshGenerationCannotPersistAWithdrawnUserOrAnOldSeerrSource(bool enabledRoster, bool sourceChanges)
+    {
+        var profile = NewProfile();
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        _history.Setup(history => history.GetAllUserIds()).Returns(enabledRoster ? [profile.UserId] : []);
+        _history.Setup(history => history.GetUserWatchProfile(profile.UserId)).Returns(profile);
+        RegisterGenreMovieResults(28, Enumerable.Range(601, 30).Select(id => Candidate(id, 8)).ToArray());
+        var saveReached = false;
+        if (enabledRoster)
+        {
+            var previous = new DiscoveryResult { UserId = profile.UserId, GeneratedAt = DateTime.UtcNow.AddDays(-1), Recommendations = [new() { TmdbId = 777, MediaType = "movie" }] };
+            Assert.True(await _cache.SaveAsync([previous], TestContext.Current.CancellationToken));
+            _cache.BeforeSaveWait = () =>
+            {
+                saveReached = true;
+                if (sourceChanges) Plugin.Instance!.Configuration.SeerrUrl = "https://other.example.test";
+            };
+        }
+
+        await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(enabledRoster, saveReached);
+        if (sourceChanges)
+        {
+            Assert.Equal(777, Assert.Single(Assert.Single(await _cache.LoadAsync(TestContext.Current.CancellationToken)).Recommendations).TmdbId);
+        }
+        else if (enabledRoster)
+        {
+            var generated = Assert.Single(await _cache.LoadAsync(TestContext.Current.CancellationToken));
+            Assert.NotEmpty(generated.Recommendations);
+            Assert.DoesNotContain(generated.Recommendations, candidate => candidate.TmdbId == 777);
+            Assert.All(generated.Recommendations, candidate => Assert.InRange(candidate.TmdbId, 601, 630));
+        }
+        else
+        {
+            Assert.Empty(await _cache.LoadAsync(TestContext.Current.CancellationToken));
+            Assert.Empty(_handler.Requests);
+        }
+
+        _feedbackStore.Verify(store => store.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), enabledRoster && !sourceChanges ? Times.Once() : Times.Never());
+    }
 
     [Theory]
     [InlineData(false)]
@@ -479,12 +590,13 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             _handler.RegisterResponse(HttpMethod.Get, path, HttpStatusCode.OK, """{"results":[]}""");
         }
 
-        var httpFactory = new Mock<IHttpClientFactory>();
-        httpFactory
+        _httpFactory = new Mock<IHttpClientFactory>();
+        _httpFactory
             .Setup(f => f.CreateClient(It.IsAny<string>()))
             .Returns(() => new HttpClient(_handler, disposeHandler: false));
 
         _history = new Mock<IWatchHistoryService>();
+        _history.Setup(history => history.GetAllUserIds()).Returns(() => _history.Object.GetAllUserWatchProfiles().Select(profile => profile.UserId).ToArray());
         _history.Setup(h => h.GetSeriesEpisodeCounts())
             .Returns(new Dictionary<Guid, int>());
 
@@ -536,7 +648,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         server.SetupGet(manager => manager.Configuration).Returns(_serverConfiguration);
         _titleMetadata = new TitleMetadataCache(server.Object, clock: _metadataClock);
         _sut = new SeerrDiscoveryService(
-            httpFactory.Object,
+            _httpFactory.Object,
             _history.Object,
             _arr.Object,
             libraryManager.Object,

@@ -23,7 +23,11 @@ public sealed record CreditField
 
     /// <summary>Returns only metadata acquired by the prediction boundary.</summary>
     /// <param name="cutoff">The historical prediction time.</param>
+    /// <param name="oldest">Optional expiry boundary for a current provider projection.</param>
     /// <returns>The original immutable field or unavailable.</returns>
-    internal CreditField? At(DateTime cutoff)
-        => AcquiredAtUtc is { } acquired && acquired != default && DateTimeNormalization.ToUtc(acquired) <= cutoff ? this : null;
+    internal CreditField? At(DateTime cutoff, DateTime? oldest = null)
+        => AcquiredAtUtc is { } acquired && acquired != default && DateTimeNormalization.ToUtc(acquired) <= cutoff
+            && (!oldest.HasValue || DateTimeNormalization.ToUtc(acquired) > oldest.Value)
+                ? this
+                : null;
 }

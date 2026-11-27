@@ -1,8 +1,12 @@
 using System.Collections.ObjectModel;
+using System.Reflection;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
+using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -18,6 +22,75 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 /// </summary>
 public sealed class EngineFullPipelineTests
 {
+    [Fact]
+    public void EngineScoringAndCapturedTrainingMetadataUseCachedCreditsWhenNativePeopleAreUnavailable()
+    {
+        var metadata = new TitleMetadataCache();
+        var harness = EngineTestFactory.Create(titleMetadataCache: metadata);
+        using var engine = harness.Engine;
+        var item = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "77" }, Path = "/media/scoped.mkv", CommunityRating = 8, Genres = ["Drama"] };
+        var acquired = DateTime.UtcNow.AddHours(-1);
+        metadata.Store(harness.ConfigService.Object.GetConfiguration(), TitleMetadataSnapshot.FromDetail(new SeerrMediaDetailResponse
+        {
+            Id = 77, Credits = new SeerrCredits { Cast = [new SeerrCastMember { Id = 1, Name = "Actor", Order = 0 }], Crew = [] }
+        }, "movie", acquired));
+        harness.LibraryManager.Setup(manager => manager.GetPeople(item)).Throws(new IOException("native credit lookup unavailable"));
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        var captured = (CreditMetadataSnapshot)typeof(Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine).GetMethod("CaptureCreditMetadata", flags)!.Invoke(engine, [item])!;
+        Assert.Equal("Actor", Assert.Single(captured.People()).Name);
+        Assert.Equal(acquired, captured.Cast!.AcquiredAtUtc);
+        Assert.Equal(item.Id, captured.SourceItemId);
+        var content = typeof(Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine).GetMethod("ResolveContentAffinity", flags)!.Invoke(engine, [item])!;
+        var served = Assert.IsType<CreditMetadataSnapshot>(content.GetType().GetProperty("Credits")!.GetValue(content));
+        Assert.Equal(captured.Cast, served.Cast);
+        Assert.DoesNotContain(item.ProviderIds, pair => pair.Key != "Tmdb");
+    }
+    [Fact]
+    public void BatchRosterRemovalExcludesTheStaleProfileFromBothResultsAndCommunityPopularity()
+    {
+        var harness = EngineTestFactory.Create();
+        using var engine = harness.Engine;
+        var active = new UserWatchProfile { UserId = Guid.NewGuid() };
+        var first = new Movie { Id = Guid.NewGuid(), Path = "/media/first.mkv", CommunityRating = 8, DateCreated = DateTime.UtcNow.AddDays(-10) };
+        var second = new Movie { Id = Guid.NewGuid(), Path = "/media/second.mkv", CommunityRating = 8, DateCreated = first.DateCreated };
+        var removed = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [new() { ItemId = first.Id, ItemType = "Movie", Played = true }] };
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([active, removed]);
+        harness.WatchHistory.Setup(history => history.GetAllUserIds()).Returns([active.UserId]);
+        harness.LibraryManager.Setup(library => library.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => query.IncludeItemTypes.Contains(BaseItemKind.Movie) ? [first, second] : []);
+        var result = Assert.Single(engine.GetAllRecommendations(2, TestContext.Current.CancellationToken));
+        Assert.Equal(active.UserId, result.UserId);
+        Assert.Equal(result.Recommendations[0].Score, result.Recommendations[1].Score, 10);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void CohortWatchRatesExcludeRatingOnlyFeedbackButKeepPlaybackAndTheExplicitFavoriteProxy(bool played, bool favorite)
+    {
+        using var ensemble = new EnsembleScoringStrategy();
+        var harness = EngineTestFactory.Create(ensemble);
+        using var engine = harness.Engine;
+        var control = Guid.NewGuid();
+        var high = Guid.NewGuid();
+        var controlIds = Enumerable.Range(0, 10).Select(_ => Guid.NewGuid()).ToArray();
+        var highIds = Enumerable.Range(0, 10).Select(_ => Guid.NewGuid()).ToArray();
+        var profiles = new Collection<UserWatchProfile>
+        {
+            new() { UserId = control },
+            new() { UserId = high, WatchedItems = new Collection<WatchedItemInfo>(highIds.Select(id => new WatchedItemInfo { ItemId = id, ItemType = "Movie", UserRating = 2, Played = played, IsFavorite = favorite }).ToList()) }
+        };
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns(profiles);
+        harness.WatchHistory.Setup(history => history.GetAllUserIds()).Returns([control, high]);
+        RecommendationResult[] previous =
+        [
+            new() { UserId = control, Cohort = "control", Recommendations = new Collection<RecommendedItem>(controlIds.Select(id => new RecommendedItem { ItemId = id }).ToList()) },
+            new() { UserId = high, Cohort = "explore-high", Recommendations = new Collection<RecommendedItem>(highIds.Select(id => new RecommendedItem { ItemId = id }).ToList()) }
+        ];
+        typeof(Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine).GetMethod("ApplyGlobalCohortFeedback", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(engine, [previous]);
+        Assert.Equal(played || favorite ? -EnsembleScoringStrategy.MidpointAdaptationStep : 0, ensemble.SigmoidMidpointOffset, 10);
+    }
+
     private static Movie MakeMovie(
         string name,
         int? productionYear = 2020,

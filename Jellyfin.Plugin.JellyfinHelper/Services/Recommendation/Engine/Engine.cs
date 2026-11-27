@@ -316,10 +316,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         {
             var watched = new HashSet<Guid>(
                 profile.WatchedItems
-                    .Where(w => w.HasMeaningfulInteraction())
+                    .Where(w => w.HasPlaybackActivity() || w.IsFavorite)
                     .Select(w => w.ItemId));
 
-            foreach (var w in profile.WatchedItems.Where(w => w.SeriesId.HasValue && w.HasMeaningfulInteraction()))
+            foreach (var w in profile.WatchedItems.Where(w => w.SeriesId.HasValue && (w.HasPlaybackActivity() || w.IsFavorite)))
             {
                 watched.Add(w.SeriesId!.Value);
             }
@@ -369,12 +369,15 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
         var profiledUsers = allProfiles.Select(profile => profile.UserId).ToHashSet();
-        if ((_watchHistoryService.GetAllUserIds() ?? []).Any(user => !profiledUsers.Contains(user)))
+        var enabledUsers = (_watchHistoryService.GetAllUserIds() ?? throw new InvalidOperationException("The enabled user roster is unavailable; recommendation batch publication is deferred.")).ToHashSet();
+        if (enabledUsers.Any(user => !profiledUsers.Contains(user)))
         {
             // Returning a partial batch would overwrite the last valid cache and
             // erase recommendations for an enabled user whose profile merely failed.
             throw new InvalidOperationException("An enabled user's watch profile is unavailable; recommendation batch publication is deferred.");
         }
+
+        allProfiles = new Collection<UserWatchProfile>(allProfiles.Where(profile => enabledUsers.Contains(profile.UserId)).ToList());
 
         var libraryScope = GetCandidateLibraryScope();
         var (candidates, seriesEpisodeCounts) = LoadCandidateItems(libraryScope, out var allMovies, out _);
@@ -1055,18 +1058,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var genreEngagementCtx = ContentScoring.BuildGenreEngagementContext(userProfile);
         var mediaSampleAccess = allCandidates.Any(candidate => candidate is Series) ? CaptureMediaSampleAccess(userProfile) : null;
 
-        // Score each unwatched candidate
-        var scored = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
-        var rankingTrace = new Dictionary<Guid, CandidateRankingEntry>();
-        var contentEligible = new HashSet<Guid>();
-        var contentSupported = new HashSet<Guid>();
-        var tasteLanes = new Dictionary<Guid, Guid>();
-        var retainedInterests = new HashSet<Guid>();
+        // Score each unwatched candidate through the shared per-pass ranking state.
+        var ranking = new CandidateRankingState();
+        var servingStrategy = strategy is EnsembleScoringStrategy ensembleStrategy ? ensembleStrategy.CaptureServingSnapshot(alphaOffset).Strategy : strategy;
         var scoringContext = new UserScoringContext
         {
             Profile = userProfile,
-            Strategy = strategy,
-            AlphaOffset = alphaOffset,
+            Strategy = servingStrategy,
+            AlphaOffset = strategy is EnsembleScoringStrategy ? 0 : alphaOffset,
             GenrePreferences = genrePreferences,
             GenreNormSq = userGenreNormSq,
             CoOccurrence = coOccurrence,
@@ -1111,29 +1110,20 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             return BuildRecommendedItem(scoredItem, peopleLookup, candidateBoxSetLookup, snapshot);
         }
 
-        var candidateIndex = 0;
-        var userMaxRating = userProfile.MaxParentalRating;
-        foreach (var candidate in allCandidates)
-        {
-            // Periodically check cancellation to stay responsive for large libraries
-            if (++candidateIndex % EngineConstants.CancellationCheckBatchSize == 0)
-            {
-                ct.ThrowIfCancellationRequested();
-            }
+        ScoreCandidatesAgainstContext(
+            allCandidates,
+            userProfile,
+            scoringContext,
+            new WatchedCandidateKeys(watchedIds, watchedSeriesIds, watchedTmdbKeys),
+            ranking,
+            ct);
 
-            if (userProfile.AccessibleItemIds?.Contains(candidate.Id) == false || ShouldSkipCandidate(candidate, userMaxRating, watchedIds, watchedSeriesIds, watchedTmdbKeys))
-            {
-                continue;
-            }
-
-            var snapshot = BuildFeatures(candidate);
-            var ranked = RankCandidate(candidate, snapshot, scoringContext);
-            scored.Add(ranked);
-            CaptureContentSelectionEvidence(candidate.Id, snapshot.Features, contentEligible, contentSupported, tasteLanes);
-            CaptureRetainedInterest(candidate.Id, snapshot.Features, retainedInterests);
-
-            CaptureRankingTrace(rankingTrace, candidate, snapshot.Features, ranked.Score, strategy);
-        }
+        var scored = ranking.Scored;
+        var rankingTrace = ranking.RankingTrace;
+        var contentEligible = ranking.ContentEligible;
+        var contentSupported = ranking.ContentSupported;
+        var tasteLanes = ranking.TasteLanes;
+        var retainedInterests = ranking.RetainedInterests;
 
         scored = DiversityReranker.DeduplicateSeries(scored);
 
@@ -1174,6 +1164,46 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         };
     }
 
+    /// <summary>
+    ///     Scores every candidate against one pinned user context and accumulates the eligibility, retained-interest and ranking-trace evidence. Extracted from GenerateForUser to keep the ranking pass within the cognitive-complexity budget while preserving the batch cancellation cadence.
+    /// </summary>
+    /// <param name="candidates">The candidate population to score.</param>
+    /// <param name="userProfile">The target user's watch profile.</param>
+    /// <param name="scoringContext">The pinned prediction context shared by the whole ranking pass.</param>
+    /// <param name="watched">The target user's watched identifiers applied by the skip rules.</param>
+    /// <param name="ranking">The per-pass ranking accumulators written while scoring.</param>
+    /// <param name="ct">Cancellation token for cooperative cancellation.</param>
+    private void ScoreCandidatesAgainstContext(
+        IEnumerable<BaseItem> candidates,
+        UserWatchProfile userProfile,
+        UserScoringContext scoringContext,
+        WatchedCandidateKeys watched,
+        CandidateRankingState ranking,
+        CancellationToken ct)
+    {
+        var candidateIndex = 0;
+        foreach (var candidate in candidates)
+        {
+            // Periodically check cancellation to stay responsive for large libraries
+            if (++candidateIndex % EngineConstants.CancellationCheckBatchSize == 0)
+            {
+                ct.ThrowIfCancellationRequested();
+            }
+
+            if (userProfile.AccessibleItemIds?.Contains(candidate.Id) == false || ShouldSkipCandidate(candidate, userProfile.MaxParentalRating, watched.WatchedIds, watched.WatchedSeriesIds, watched.WatchedTmdbKeys))
+            {
+                continue;
+            }
+
+            var snapshot = BuildCandidateFeatures(candidate, scoringContext, ct);
+            var ranked = RankCandidate(candidate, snapshot, scoringContext);
+            ranking.Scored.Add(ranked);
+            CaptureContentSelectionEvidence(candidate.Id, snapshot.Features, ranking.ContentEligible, ranking.ContentSupported, ranking.TasteLanes);
+            CaptureRetainedInterest(candidate.Id, snapshot.Features, ranking.RetainedInterests);
+            CaptureRankingTrace(ranking.RankingTrace, candidate, snapshot.Features, ranked.Score, scoringContext.Strategy);
+        }
+    }
+
     private static void CaptureContentSelectionEvidence(Guid candidateId, CandidateFeatures features, HashSet<Guid> eligible, HashSet<Guid> supported, Dictionary<Guid, Guid> tasteLanes)
     {
         if (!ScoringHelper.IsContentEligible(features))
@@ -1211,7 +1241,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             TmdbId = ResolveTitleTmdbId(candidate),
             ItemType = candidate.GetType().Name,
             InitialScore = double.IsFinite(score) ? score : null,
-            PreContentScore = strategy is EnsembleScoringStrategy or HeuristicScoringStrategy
+            PreContentScore = strategy is EnsembleScoringStrategy or EnsembleScoringStrategy.ServingScorer or HeuristicScoringStrategy
                 ? ScoringHelper.RecoverPreContentScore(score, features)
                 : null,
             ContentFitSupport = features.ContentFitSupport,
@@ -1614,14 +1644,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 context.WatchedPeopleSets,
                 context.WatchedStudioSets),
             LanguageAffinity = languageAffinity,
-            HasAudioLanguageEvidence = Training.TrainingFeatureComputer.HasLanguageEvidence(candidateMediaLanguages.Audio, context.Profile.LanguageProfile.Count, candidateMediaLanguages.AudioKnown),
+            HasAudioLanguageEvidence = Training.TrainingFeatureComputer.HasLanguageEvidence(candidateMediaLanguages.Audio, context.Profile.LanguageProfile, candidateMediaLanguages.AudioKnown),
             CollectionProgressionBoost = ComputeCollectionProgressionBoostLive(
                 context.CandidateBoxSetLookup.TryGetValue(candidate.Id, out var candidateBoxSets) ? candidateBoxSets : [],
                 context.WatchedBoxSetCounts),
             // Subtitle language affinity: reuses the already-resolved subtitle languages
             // from the single ResolveMediaLanguages() call above (no second stream scan).
             SubtitleLanguageAffinity = ComputeSubtitleLanguageAffinityFromStreams(context.Profile, candidateMediaLanguages.Subtitles),
-            HasSubtitleLanguageEvidence = Training.TrainingFeatureComputer.HasLanguageEvidence(candidateMediaLanguages.Subtitles, context.Profile.SubtitleLanguageProfile.Count, candidateMediaLanguages.SubtitlesKnown),
+            HasSubtitleLanguageEvidence = Training.TrainingFeatureComputer.HasLanguageEvidence(candidateMediaLanguages.Subtitles, context.Profile.SubtitleLanguageProfile, candidateMediaLanguages.SubtitlesKnown),
             MediaLanguageSampleItemId = candidateMediaLanguages.SampleItemId,
             MediaLanguageSampledAtUtc = candidateMediaLanguages.AcquiredAtUtc,
             MediaLanguageIsEpisodeSample = candidateMediaLanguages.IsEpisodeSample,
@@ -1703,7 +1733,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 context.PreferredStudios,
                 context.PeopleLookup,
                 matchedCredits,
-                content.TitleMetadata));
+                content.TitleMetadata,
+                content.EffectiveGenres));
 
         return (candidate, explanation.FinalScore, reason, reasonKey, relatedItem);
     }
@@ -2040,9 +2071,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 people = null; // People unreadable - still cache the metadata fields below.
             }
 
+            var credits = CreditMetadataCapture.WithAvailableTitleMetadata(candidate, CreditMetadataCapture.Native(candidate, people, DateTime.UtcNow), titleMetadata);
             lookup[candidate.Id] = new CandidateContentAffinity(
                 ContentAffinityResolver.ResolveTmdbCollectionName(candidate),
-                ContentAffinityResolver.ResolveProductionCountries(candidate),
+                credits.ProductionCountries?.ToList() ?? [],
                 ContentAffinityResolver.ResolveInheritedTags(candidate),
                 ContentAffinityResolver.ResolveSeriesStatus(candidate),
                 ContentAffinityResolver.ResolveSeriesEndDate(candidate),
@@ -2052,7 +2084,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 BuildStudioSet(titleMetadata))
             {
                 TmdbCollectionId = collectionIds.GetValueOrDefault(candidate.Id),
-                Credits = CreditMetadataCapture.Native(candidate, people, DateTime.UtcNow),
+                Credits = credits,
                 OwnTags = candidate.Tags?.ToArray() ?? [],
                 OfficialRating = candidate.OfficialRating,
                 TitleMetadata = titleMetadata,
@@ -2110,9 +2142,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             people = null;
         }
 
+        var credits = CreditMetadataCapture.WithAvailableTitleMetadata(candidate, CreditMetadataCapture.Native(candidate, people, DateTime.UtcNow), titleMetadata);
         return new CandidateContentAffinity(
             ContentAffinityResolver.ResolveTmdbCollectionName(candidate),
-            ContentAffinityResolver.ResolveProductionCountries(candidate),
+            credits.ProductionCountries?.ToList() ?? [],
             ContentAffinityResolver.ResolveInheritedTags(candidate),
             ContentAffinityResolver.ResolveSeriesStatus(candidate),
             ContentAffinityResolver.ResolveSeriesEndDate(candidate),
@@ -2122,7 +2155,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             BuildStudioSet(titleMetadata))
         {
             TmdbCollectionId = LoadCollectionIds([candidate]).GetValueOrDefault(candidate.Id),
-            Credits = CreditMetadataCapture.Native(candidate, people, DateTime.UtcNow),
+            Credits = credits,
             OwnTags = candidate.Tags?.ToArray() ?? [],
             OfficialRating = candidate.OfficialRating,
             TitleMetadata = titleMetadata,
@@ -2149,7 +2182,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             people = null;
         }
 
-        return CreditMetadataCapture.Native(item, people, DateTime.UtcNow);
+        return CreditMetadataCapture.WithAvailableTitleMetadata(item, CreditMetadataCapture.Native(item, people, DateTime.UtcNow), CachedTitleMetadata(item));
     }
 
     private TitleMetadataSnapshot? CachedTitleMetadata(BaseItem candidate)
@@ -3135,6 +3168,34 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         _trainingService.Dispose();
     }
+
+    /// <summary>Per-pass ranking accumulators populated while scoring candidates against a pinned user context.</summary>
+    private sealed class CandidateRankingState
+    {
+        /// <summary>Gets or sets the accumulating scored-candidate list.</summary>
+        public List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)> Scored { get; set; } = new();
+
+        /// <summary>Gets or sets the set of candidates with coherent content eligibility.</summary>
+        public HashSet<Guid> ContentEligible { get; set; } = new();
+
+        /// <summary>Gets or sets the set of eligible candidates with coherent content support.</summary>
+        public HashSet<Guid> ContentSupported { get; set; } = new();
+
+        /// <summary>Gets or sets the taste-lane mapping for supported candidates.</summary>
+        public Dictionary<Guid, Guid> TasteLanes { get; set; } = new();
+
+        /// <summary>Gets or sets the set of candidates retained as interests.</summary>
+        public HashSet<Guid> RetainedInterests { get; set; } = new();
+
+        /// <summary>Gets or sets the accumulating ranking-trace entries.</summary>
+        public Dictionary<Guid, CandidateRankingEntry> RankingTrace { get; set; } = new();
+    }
+
+    /// <summary>Watched identifiers applied by the candidate skip rules during one scoring pass.</summary>
+    private sealed record WatchedCandidateKeys(
+        HashSet<Guid> WatchedIds,
+        HashSet<Guid> WatchedSeriesIds,
+        HashSet<(int TmdbId, string MediaType)> WatchedTmdbKeys);
 
     /// <summary>
     ///     Init-only prediction context shared by initial ranking and selected-snapshot scoring. Prepared

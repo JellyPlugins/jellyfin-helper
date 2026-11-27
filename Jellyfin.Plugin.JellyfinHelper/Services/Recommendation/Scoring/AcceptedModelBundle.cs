@@ -13,6 +13,10 @@ internal sealed class AcceptedModelBundle
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public int FeatureDerivationVersion { get; set; }
 
+    /// <summary>Gets or sets the pinned Neural component's own fitting provenance; missing old metadata is never inferred from the compound marker.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int NeuralFeatureDerivationVersion { get; set; }
+
     /// <summary>Gets or sets a value indicating whether the checkpoint is allowed for bounded serving but has no verified ranking approval.</summary>
     public bool IsProvisional { get; set; }
 

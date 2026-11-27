@@ -1147,7 +1147,7 @@ public class TrainingServiceTests
     public void Train_WithPopulatedProfiles_InvokesStrategyWithExamples()
     {
         var userId = Guid.NewGuid();
-        var profiles = new Collection<UserWatchProfile> { CreatePopulatedProfile(userId) };
+        var profiles = new Collection<UserWatchProfile> { CreateGuaranteedFittingProfile(userId) };
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
@@ -1248,7 +1248,7 @@ public class TrainingServiceTests
         // When the feedback store returns Phase-4 discovery examples, they must be
         // forwarded into TrainingDataBuilder.BuildExamples.
         var userId = Guid.NewGuid();
-        var profiles = new Collection<UserWatchProfile> { CreatePopulatedProfile(userId) };
+        var profiles = new Collection<UserWatchProfile> { CreateGuaranteedFittingProfile(userId) };
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(new List<DiscoveryFeedbackResult>
         {

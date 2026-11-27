@@ -390,7 +390,7 @@ public class TemporalFeaturesTests
         var genreIds = source == "provider" ? new[] { 18 } : [];
         var metadata = source == "unavailable" ? null : new TitleMetadataSnapshot { MediaType = "movie", GenreIds = [.. genreIds], FetchedAtUtc = prediction.AddDays(-1) };
         var effective = (IReadOnlyList<string>)typeof(Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine).GetMethod("ResolveEffectiveGenres", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.Invoke(null, [candidate, metadata])!;
-        var profile = new UserWatchProfile { WatchedItems = [.. Enumerable.Range(1, 10).Select(i => WI(prediction.AddDays(-7 * (i - 1)), ["Drama"]))] };
+        var profile = new UserWatchProfile { WatchedItems = [.. Enumerable.Range(1, 10).Select(i => WI(prediction.AddDays(-7d * (i - 1)), ["Drama"]))] };
         var target = new WatchedItemInfo { ItemId = candidate.Id, LastPlayedDate = prediction };
         Assert.Equal(expected, TemporalFeatures.ComputeDayOfWeekAffinity(effective, profile, prediction, candidate.Id));
         Assert.Equal(expected, TemporalFeatures.ComputeHourOfDayAffinity(effective, profile, prediction, candidate.Id));
@@ -407,7 +407,7 @@ public class TemporalFeaturesTests
         var prediction = new DateTime(2026, 11, 23, 20, 0, 0, DateTimeKind.Utc);
         var target = Guid.NewGuid();
         var series = Guid.NewGuid();
-        var profile = new UserWatchProfile { WatchedItems = [.. Enumerable.Range(1, 10).Select(i => WI(prediction.AddDays(-7 * i), ["Drama"]))] };
+        var profile = new UserWatchProfile { WatchedItems = [.. Enumerable.Range(1, 10).Select(i => WI(prediction.AddDays(-7d * i), ["Drama"]))] };
         profile.WatchedItems.Add(new() { ItemId = target, Played = true, LastPlayedDate = prediction.AddDays(-7), Genres = ["Horror"] });
         profile.WatchedItems.Add(new() { ItemId = Guid.NewGuid(), SeriesId = series, Played = true, LastPlayedDate = prediction.AddDays(-7), Genres = ["Horror"] });
         profile.WatchedItems.Add(new() { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = prediction, Genres = ["Horror"] });

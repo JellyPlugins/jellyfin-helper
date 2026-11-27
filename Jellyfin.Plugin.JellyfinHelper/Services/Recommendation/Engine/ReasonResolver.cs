@@ -62,7 +62,7 @@ internal static class ReasonResolver
         var dominant = explanation.DominantSignal;
 
         // Resolve concrete names for richer reasons
-        var topGenre = ResolveTopGenre(candidate, genrePreferences);
+        var topGenre = GenreNormalizer.BestMatch(people.EffectiveGenres ?? candidate.Genres ?? [], genrePreferences);
         var matchedPerson = ResolveMatchedPerson(candidate, people.PreferredPeople, people.PeopleLookup, people.PreferredPeopleWeights);
         var matchedStudio = ProducerEvidence.MatchedName(people.ProducerMetadata, people.PreferredStudios);
 
@@ -356,19 +356,6 @@ internal static class ReasonResolver
     }
 
     /// <summary>
-    ///     Resolves the top matching genre from the candidate's genres against the user's preferences.
-    /// </summary>
-    private static string? ResolveTopGenre(BaseItem candidate, Dictionary<string, double> genrePreferences)
-    {
-        if (candidate.Genres is not { Length: > 0 })
-        {
-            return null;
-        }
-
-        return GenreNormalizer.BestMatch(candidate.Genres, genrePreferences);
-    }
-
-    /// <summary>
     ///     Resolves a concrete person name from the candidate that matches the user's preferred people.
     /// </summary>
     private static string? ResolveMatchedPerson(
@@ -474,10 +461,12 @@ internal static class ReasonResolver
     /// <param name="PeopleLookup">Pre-built people lookup (item id to person names) for resolving names on candidates.</param>
     /// <param name="PreferredPeopleWeights">Per-name weights; when supplied the reason surfaces the highest-weighted matching person.</param>
     /// <param name="ProducerMetadata">Captured typed production metadata; names alone never establish a studio reason.</param>
+    /// <param name="EffectiveGenres">The exact captured genres used for scoring, including qualified provider fallback.</param>
     internal readonly record struct ReasonPeopleContext(
         HashSet<string>? PreferredPeople = null,
         HashSet<string>? PreferredStudios = null,
         Dictionary<Guid, HashSet<string>>? PeopleLookup = null,
         IReadOnlyDictionary<string, double>? PreferredPeopleWeights = null,
-        TitleMetadataSnapshot? ProducerMetadata = null);
+        TitleMetadataSnapshot? ProducerMetadata = null,
+        IReadOnlyList<string>? EffectiveGenres = null);
 }

@@ -97,7 +97,8 @@ public sealed class DiscoverySelectionTests
         var unknown = Candidate(3, .5);
         Assert.Equal([2, 3], DiscoverySelection.Select([unrelated, matched, unknown], 20).Select(item => item.TmdbId));
         Assert.Equal(.5, unrelated.ScoringFeatures.ContentFamilyMismatch);
-        Assert.Equal([1, 2, 3], DiscoverySelection.Select([unrelated, matched, unknown], 20, preserveSourceRank: true).Select(item => item.TmdbId));
+        Assert.Equal([2, 3], DiscoverySelection.Select([unrelated, matched, unknown], 20, preserveSourceRank: true).Select(item => item.TmdbId));
+        Assert.Equal([.6, .5], DiscoverySelection.Select([unrelated, matched, unknown], 20, preserveSourceRank: true).Select(item => item.Score));
     }
 
     [Fact]

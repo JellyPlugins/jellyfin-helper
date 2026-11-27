@@ -21,6 +21,7 @@ public sealed class TitleMetadataCache
     private const int MaximumEntries = 4096;
     private const int MaximumFileBytes = 16 * 1024 * 1024;
     private const string MovieMediaType = "movie";
+    private const string TraktSource = "trakt";
     private readonly Lock _gate = new();
     private readonly Lock _persistenceGate = new();
     private readonly Lock _writerGate = new();
@@ -77,6 +78,15 @@ public sealed class TitleMetadataCache
                 foreach (var time in snapshot.FieldFetchedAtUtc?.Values ?? [])
                 {
                     until = NextValidityBoundary(time, now, until);
+                }
+
+                // Nested credit acquisition times expire with the same bounded window; without
+                // them a freshly captured credit could stay reusable after its own acquisition elapsed.
+                if (snapshot.Credits is { } credits)
+                {
+                    until = NextValidityBoundary(credits.CountriesAcquiredAtUtc ?? DateTime.MinValue, now, until);
+                    until = NextValidityBoundary(credits.Cast?.AcquiredAtUtc ?? DateTime.MinValue, now, until);
+                    until = NextValidityBoundary(credits.Crew?.AcquiredAtUtc ?? DateTime.MinValue, now, until);
                 }
             }
 
@@ -161,7 +171,7 @@ public sealed class TitleMetadataCache
         var keys = IdentityKeys(Key(config, 0, mediaType, language).Split(':')[0], mediaType, tmdbId, tvdbId, imdbId).ToList();
         foreach (var source in ActiveSupplementalSources(config))
         {
-            keys.AddRange(IdentityKeys(SourceDigest(source, source.Source == "trakt" ? null : language), mediaType, tmdbId, tvdbId, imdbId));
+            keys.AddRange(IdentityKeys(SourceDigest(source, source.Source == TraktSource ? null : language), mediaType, tmdbId, tvdbId, imdbId));
         }
 
         return keys;
@@ -264,22 +274,33 @@ public sealed class TitleMetadataCache
             return null;
         }
 
-        var usable = FreshProjection(snapshot, now)!;
-        return IdentityKeys(key.Split(':')[0], usable.MediaType, usable.TmdbId, usable.TvdbId, usable.ImdbId).Contains(key, StringComparer.Ordinal)
+        var usable = FreshProjection(snapshot, now);
+        return usable is not null && IdentityKeys(key.Split(':')[0], usable.MediaType, usable.TmdbId, usable.TvdbId, usable.ImdbId).Contains(key, StringComparer.Ordinal)
             ? usable
             : null;
     }
 
     internal static TitleMetadataSnapshot? FreshProjection(TitleMetadataSnapshot snapshot, DateTime now)
+        => snapshot.At(now, now.AddDays(-30));
+
+    /// <summary>Validates raw incoming aliases through the same active source/language and field-age boundary as cached metadata.</summary>
+    /// <param name="config">The current configured provider population.</param>
+    /// <param name="snapshot">Incoming metadata, possibly containing several source observations.</param>
+    /// <param name="language">The actual requested metadata language.</param>
+    /// <returns>Only current configured observations; unscoped or withdrawn observations cannot bypass a cache miss.</returns>
+    internal TitleMetadataSnapshot? CurrentProjection(PluginConfiguration config, TitleMetadataSnapshot? snapshot, string? language)
     {
-        if (!IsUsable(snapshot.FetchedAtUtc, now))
+        if (snapshot is null)
         {
             return null;
         }
 
-        return snapshot.FieldFetchedAtUtc is null || snapshot.FieldFetchedAtUtc.Values.All(time => IsUsable(time, now))
-            ? snapshot
-            : MergeFields(snapshot, null, now);
+        var scopes = ActiveSupplementalSources(config).Select(source => (source.Source, Scope: SourceDigest(source, source.Source == TraktSource ? null : language)))
+            .Append((Source: "seerr", Scope: SeerrScope(config, language))).ToHashSet();
+        var observations = TitleMetadataMerger.Observations(snapshot)
+            .Where(source => source.ObservationScope is not null && scopes.Contains((source.Source, source.ObservationScope)))
+            .ToArray();
+        return TitleMetadataMerger.CombineCurrentObservations(observations, Now);
     }
 
     internal static string SeerrScope(PluginConfiguration config, string? language)
@@ -289,7 +310,7 @@ public sealed class TitleMetadataCache
     /// <param name="config">Current provider configuration.</param>
     /// <returns>Only hashed source identities, not credentials.</returns>
     internal string ProducerScope(PluginConfiguration config)
-        => string.Join(':', ActiveSupplementalSources(config).Select(source => SourceDigest(source, source.Source == "trakt" ? null : MetadataLanguage))
+        => string.Join(':', ActiveSupplementalSources(config).Select(source => SourceDigest(source, source.Source == TraktSource ? null : MetadataLanguage))
             .Append(SeerrScope(config, MetadataLanguage)).Order(StringComparer.Ordinal));
 
     /// <summary>Reserves a refresh slot, preventing duplicate title requests and rapid retries after failures.</summary>
@@ -311,7 +332,7 @@ public sealed class TitleMetadataCache
         var key = Key(config, tmdbId, mediaType, language);
         lock (_gate)
         {
-            if ((_entries.TryGetValue(key, out var snapshot) && snapshot.FetchedAtUtc > Now.AddDays(-7) && snapshot.FetchedAtUtc <= Now)
+            if ((_entries.TryGetValue(key, out var snapshot) && HasRecentScoringFields(snapshot, Now))
                 || (_attempts.TryGetValue(key, out var attempted) && attempted > Now.AddMinutes(-15)))
             {
                 return false;
@@ -392,7 +413,7 @@ public sealed class TitleMetadataCache
                 RemoveEntry(_entries.MinBy(pair => pair.Value.FetchedAtUtc).Key);
             }
 
-            _entries[key] = previous is null && snapshot.FieldFetchedAtUtc is null ? snapshot : MergeFields(snapshot, previous, Now);
+            _entries[key] = previous is null && snapshot.FieldFetchedAtUtc is null ? snapshot : MergeFields(snapshot, previous, Now, preferNewerFields: true);
             _generation++;
             RegisterAliases(key, _entries[key]);
             return ReadUsableEntry(key, Now);
@@ -477,7 +498,7 @@ public sealed class TitleMetadataCache
 
         if (config.TraktSourcingEnabled && TraktMetadataAvailable(config))
         {
-            yield return new("trakt", "https://api.trakt.tv", "public-metadata");
+            yield return new(TraktSource, "https://api.trakt.tv", "public-metadata");
         }
     }
 
@@ -519,7 +540,7 @@ public sealed class TitleMetadataCache
         var key = Key(config, id, mediaType, language);
         var now = Now;
         return id > 0 && mediaType is MovieMediaType or "tv" && _reservations.Count < MaximumEntries
-            && !(_entries.TryGetValue(key, out var snapshot) && snapshot.FetchedAtUtc > now.AddDays(-7) && snapshot.FetchedAtUtc <= now)
+            && !(_entries.TryGetValue(key, out var snapshot) && HasRecentScoringFields(snapshot, now))
             && !(_attempts.TryGetValue(key, out var attempted) && attempted > now.AddMinutes(-15))
             && _reservations.Add(key);
     }
@@ -552,6 +573,18 @@ public sealed class TitleMetadataCache
 
     private static bool IsUsable(DateTime acquiredAt, DateTime now)
         => acquiredAt <= now && acquiredAt > now.AddDays(-30);
+
+    private static bool HasRecentScoringFields(TitleMetadataSnapshot snapshot, DateTime now)
+    {
+        bool Recent(DateTime time) => time <= now && time > now.AddDays(-7);
+        bool Field(string name) => Recent(snapshot.FieldFetchedAtUtc?.GetValueOrDefault(name, snapshot.FetchedAtUtc) ?? snapshot.FetchedAtUtc);
+        return snapshot.GenreIds.HasValue && Field(nameof(TitleMetadataSnapshot.GenreIds))
+            && snapshot.Keywords.HasValue && Field(nameof(TitleMetadataSnapshot.Keywords))
+            && snapshot.ProductionCompanies.HasValue && Field(nameof(TitleMetadataSnapshot.ProductionCompanies))
+            && snapshot.Credits is { } credits && credits.TmdbId == snapshot.TmdbId && credits.MediaType == snapshot.MediaType
+            && credits.PeopleComplete && credits.Cast?.AcquiredAtUtc is { } castAt && Recent(castAt)
+            && credits.Crew?.AcquiredAtUtc is { } crewAt && Recent(crewAt);
+    }
 
     private static TitleMetadataSnapshot MergeFields(TitleMetadataSnapshot snapshot, TitleMetadataSnapshot? previous, DateTime now, bool preferNewerFields = false)
     {
@@ -594,6 +627,7 @@ public sealed class TitleMetadataCache
             ProductionCountries = Field(snapshot.ProductionCountries, previous?.ProductionCountries, nameof(TitleMetadataSnapshot.ProductionCountries)),
             ProductionCompanies = Field(snapshot.ProductionCompanies, previous?.ProductionCompanies, nameof(TitleMetadataSnapshot.ProductionCompanies)),
             Networks = Field(snapshot.Networks, previous?.Networks, nameof(TitleMetadataSnapshot.Networks)),
+            Credits = snapshot.Credits?.WithFallback(previous?.Credits) ?? previous?.Credits,
             Overview = Field(snapshot.Overview, previous?.Overview, nameof(TitleMetadataSnapshot.Overview))
         };
         return merged with { FieldFetchedAtUtc = times.ToImmutable() };

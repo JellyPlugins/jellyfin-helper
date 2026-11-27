@@ -33,7 +33,16 @@ public sealed record RecommendationChoiceEvidence
 
     internal bool IsValid(Guid observationId, DateTime referenceTime)
         => observationId != Guid.Empty && ChosenObservationId == observationId && ChosenFeatures is not null
-            && HasValidTime(referenceTime) && HasValidAlternatives(observationId);
+            && HasValidTime(referenceTime) && HasValidAlternatives(observationId)
+            && HasCompatibleDerivation(ChosenFeatures.FeatureDerivationVersion);
+
+    /// <summary>Checks every stored prediction input, not only the enclosing training row.</summary>
+    /// <param name="version">The owning fitting or admission cohort.</param>
+    /// <returns>False for mixed, missing or unsupported nested prediction provenance.</returns>
+    internal bool HasCompatibleDerivation(int version)
+        => ChosenFeatures is not null && FeatureDerivationContract.IsCompatible(ChosenFeatures.FeatureDerivationVersion, version)
+            && !Alternatives.IsDefaultOrEmpty && Alternatives.All(alternative => alternative?.Features is { } features
+                && FeatureDerivationContract.IsCompatible(features.FeatureDerivationVersion, version));
 
     private bool HasValidTime(DateTime referenceTime)
         => RecommendedAtUtc > DateTime.UnixEpoch && AvailableAtUtc > DateTime.UnixEpoch

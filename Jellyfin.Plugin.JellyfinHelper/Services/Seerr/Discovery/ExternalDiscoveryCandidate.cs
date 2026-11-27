@@ -64,6 +64,10 @@ public sealed class ExternalDiscoveryCandidate
     /// <summary>Gets or sets optional source genre labels, without inventing TMDb genre IDs.</summary>
     public IReadOnlyList<string>? SourceGenres { get; set; }
 
+    /// <summary>Gets or sets a value indicating whether source labels came from the same metadata observation and must follow its rejection.</summary>
+    [JsonIgnore]
+    public bool SourceGenresFromMetadata { get; set; }
+
     /// <summary>Gets or sets detached source metadata, including known TVDB/IMDb mappings and original-language hints.</summary>
     public TitleMetadataSnapshot? TitleMetadata { get; set; }
 

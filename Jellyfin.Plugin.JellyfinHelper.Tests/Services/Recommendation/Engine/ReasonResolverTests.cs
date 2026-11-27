@@ -13,6 +13,18 @@ public class ReasonResolverTests
 {
     private const double AboveThreshold = 0.20;
 
+    [Fact]
+    public void TheGenreReasonUsesTheSameCapturedProviderFallbackAsTheScoreWithoutChangingLibraryMetadata()
+    {
+        var movie = new Movie { Genres = [] };
+        var explanation = new ScoreExplanation { DominantSignal = "Genre", GenreContribution = .5 };
+        var result = ReasonResolver.DetermineReason(movie, explanation, new Dictionary<string, double> { ["Drama"] = 1 }, default,
+            new ReasonResolver.ReasonPeopleContext(EffectiveGenres: ["Drama"]));
+        Assert.Equal("reasonGenre", result.ReasonKey);
+        Assert.Equal("Drama", result.RelatedItem);
+        Assert.Empty(movie.Genres);
+    }
+
     private const double LowContribution = 0.03;  // below the old 0.05 ReasonScoreThreshold; the A fix must still surface these dominant-signal reasons
 
     private static Movie CreateMovie(Guid? id = null, string[]? genres = null, string[]? studios = null)

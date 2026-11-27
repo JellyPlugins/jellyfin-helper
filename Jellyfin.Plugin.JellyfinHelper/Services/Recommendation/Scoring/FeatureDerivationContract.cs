@@ -11,21 +11,35 @@ internal static class FeatureDerivationContract
     /// <param name="modelVersion">The model's captured fitting/publication marker.</param>
     /// <returns>Whether both describe the same supported input contract.</returns>
     internal static bool IsCompatible(int inputVersion, int modelVersion)
-        => inputVersion == modelVersion && inputVersion is 0 or CandidateFeatures.CurrentFeatureDerivationVersion;
+        => inputVersion == modelVersion && inputVersion >= 0 && inputVersion <= CandidateFeatures.CurrentFeatureDerivationVersion;
 
     /// <summary>Selects a natural current cohort when present, otherwise retaining unmarked legacy evidence.</summary>
     /// <param name="fitting">The unchanged permanent fitting partition.</param>
     /// <param name="holdout">The unchanged permanent holdout partition.</param>
     /// <returns>The current derivation when supplied, otherwise zero for legacy/unknown inputs.</returns>
     internal static int SelectTrainingVersion(IReadOnlyList<TrainingExample> fitting, IReadOnlyList<TrainingExample> holdout)
-        => fitting.Concat(holdout).Any(row => row.Features?.FeatureDerivationVersion == CandidateFeatures.CurrentFeatureDerivationVersion) ? CandidateFeatures.CurrentFeatureDerivationVersion : 0;
+        => fitting.Concat(holdout).Select(row => row.Features?.FeatureDerivationVersion ?? 0)
+            .Where(version => version >= 0 && version <= CandidateFeatures.CurrentFeatureDerivationVersion).DefaultIfEmpty(0).Max();
 
-    /// <summary>Selects existing rows without changing features, identities, weights, labels or timestamps.</summary>
+    /// <summary>Selects observed inputs without relabeling them; incompatible nested comparisons are withheld.</summary>
     /// <param name="examples">Original observations.</param>
     /// <param name="version">The selected input derivation.</param>
-    /// <returns>A detached row array, retaining each original observation object.</returns>
+    /// <returns>Original rows, or a choice-free copy when nested comparisons have incompatible provenance.</returns>
     internal static TrainingExample[] SelectCohort(IEnumerable<TrainingExample> examples, int version)
-        => examples.Where(row => row.Features is not null && row.Features.FeatureDerivationVersion == version).ToArray();
+        => examples.Where(row => row.Features is not null && row.Features.FeatureDerivationVersion == version)
+            .Select(row => WithoutIncompatibleChoice(row, version)).ToArray();
+
+    private static TrainingExample WithoutIncompatibleChoice(TrainingExample row, int version)
+    {
+        if (row.Choice is null || row.Choice.HasCompatibleDerivation(version))
+        {
+            return row;
+        }
+
+        // The incompatible choice is withheld with its uncloneable feature snapshot; the cohort row
+        // itself remains valid and therefore never copies or dereferences the rejected choice.
+        return row.Copy(null);
+    }
 
     /// <summary>Prevents mixed or unsupported feature derivations from claiming one admission contract.</summary>
     /// <param name="examples">The original calibration/acceptance observations.</param>
@@ -35,20 +49,21 @@ internal static class FeatureDerivationContract
     {
         version = 0;
         var found = false;
-        foreach (var features in examples.Select(row => row.Features))
+        foreach (var row in examples)
         {
+            var features = row.Features;
             if (features is null)
             {
                 return false;
             }
 
             var next = features.FeatureDerivationVersion;
-            if (next is not 0 && next != CandidateFeatures.CurrentFeatureDerivationVersion)
+            if (next < 0 || next > CandidateFeatures.CurrentFeatureDerivationVersion)
             {
                 return false;
             }
 
-            if (found && version != next)
+            if ((found && version != next) || (row.Choice is not null && !row.Choice.HasCompatibleDerivation(next)))
             {
                 return false;
             }

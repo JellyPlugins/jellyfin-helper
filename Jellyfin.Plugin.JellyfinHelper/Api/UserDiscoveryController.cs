@@ -619,17 +619,7 @@ public sealed class UserDiscoveryController : ControllerBase
                 return (null, StatusCode(503, new RequestResult { Success = false, Message = "Seerr configuration changed while request permissions were being verified. Please retry." }));
             }
 
-            var prepared = durable.PrepareRequestedCard(user, delivery.Item, delivery.GeneratedAtUtc, scope);
-            try
-            {
-                durable.MarkPreparedSubmission(prepared);
-                return (prepared, null);
-            }
-            catch
-            {
-                durable.AbandonPreparedRequest(prepared);
-                throw;
-            }
+            return (durable.PrepareRequestedCard(user, delivery.Item, delivery.GeneratedAtUtc, scope), null);
         }
         catch (Exception exception) when (!exception.IsFatal())
         {
@@ -648,11 +638,29 @@ public sealed class UserDiscoveryController : ControllerBase
         }
 
         SeerrRequestResult? result = null;
+        var sendStarted = false;
+        void BeforeSend()
+        {
+            if (admission.Prepared is { } prepared)
+            {
+                ((DiscoveryFeedbackStore)_feedbackStore).MarkPreparedSubmission(prepared);
+            }
+        }
+
         try
         {
-            result = _discovery is SeerrDiscoveryService native
-                ? await native.SubmitCapturedRequestAsync(submission, cancellationToken).ConfigureAwait(false)
-                : await _discovery.SubmitRequestAsync(submission.TmdbId, submission.MediaType, submission.SeerrUserId, submission.ServerId, submission.ProfileId, submission.RootFolder, cancellationToken).ConfigureAwait(false);
+            if (_discovery is SeerrDiscoveryService native)
+            {
+                result = await native.SubmitCapturedRequestAsync(submission with { BeforeSend = BeforeSend, SendStarted = () => sendStarted = true }, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                // A custom submitter exposes no POST boundary. Preserve possible
+                // acceptance once its call begins rather than inventing no-send proof.
+                BeforeSend();
+                sendStarted = true;
+                result = await _discovery.SubmitRequestAsync(submission.TmdbId, submission.MediaType, submission.SeerrUserId, submission.ServerId, submission.ProfileId, submission.RootFolder, cancellationToken).ConfigureAwait(false);
+            }
 
             if (!result.Success)
             {
@@ -673,13 +681,20 @@ public sealed class UserDiscoveryController : ControllerBase
                 result.AlreadyRequested ? StatusCodes.Status200OK : StatusCodes.Status201Created,
                 new RequestResult { Success = true, AlreadyRequested = result.AlreadyRequested, Message = result.Message });
         }
+        catch (IOException exception) when (!sendStarted && !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(exception, "[Discovery] Original submission evidence could not be persisted before the POST boundary");
+            return StatusCode(503, new RequestResult { Success = false, Message = "Original request evidence could not be retained. No Seerr request was submitted; please retry." });
+        }
         finally
         {
-            FinishUpstreamAttempt(admission.Prepared, result is null || result.SubmissionUncertain);
+            var definitelyUnaccepted = result is { Success: false, SubmissionUncertain: false }
+                || (result is null && _discovery is SeerrDiscoveryService && !sendStarted);
+            FinishUpstreamAttempt(admission.Prepared, result?.SubmissionUncertain == true || (result is null && sendStarted), definitelyUnaccepted);
         }
     }
 
-    private void FinishUpstreamAttempt(DiscoveryFeedbackStore.PreparedRequest? prepared, bool uncertain)
+    private void FinishUpstreamAttempt(DiscoveryFeedbackStore.PreparedRequest? prepared, bool uncertain, bool definitelyUnaccepted)
     {
         if (prepared is null)
         {
@@ -688,7 +703,7 @@ public sealed class UserDiscoveryController : ControllerBase
 
         try
         {
-            ((DiscoveryFeedbackStore)_feedbackStore).FinishPreparedAttempt(prepared, uncertain);
+            ((DiscoveryFeedbackStore)_feedbackStore).FinishPreparedAttempt(prepared, uncertain, definitelyUnaccepted);
         }
         catch (Exception exception) when (!exception.IsFatal())
         {
@@ -705,7 +720,7 @@ public sealed class UserDiscoveryController : ControllerBase
 
         try
         {
-            ((DiscoveryFeedbackStore)_feedbackStore).AbandonPreparedRequest(prepared);
+            ((DiscoveryFeedbackStore)_feedbackStore).FinishPreparedAttempt(prepared, submissionUncertain: false, definitelyUnaccepted: true);
         }
         catch (Exception exception) when (!exception.IsFatal())
         {

@@ -21,6 +21,30 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.WatchHist
 
 public sealed class WatchHistoryServiceTests
 {
+    [Fact]
+    public void WatchedMoviesUseScopedProviderCreditsWithoutTreatingMetadataAcquisitionAsPlayback()
+    {
+        var user = CreateTestUser("provider credits");
+        var movie = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "77" }, Path = "/media/scoped.mkv", Genres = ["Drama"] };
+        var acquired = DateTime.UtcNow.AddHours(-1);
+        var played = acquired.AddDays(-2);
+        var metadata = new Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataCache();
+        metadata.Store(_mockConfigService.Object.GetConfiguration(), Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataSnapshot.FromDetail(new Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery.SeerrMediaDetailResponse
+        {
+            Id = 77, Credits = new Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery.SeerrCredits
+            {
+                Cast = [], Crew = [new Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery.SeerrCrewMember { Id = 1, Name = "Writer", Job = "Writer" }]
+            }
+        }, "movie", acquired));
+        using var service = new WatchHistoryService(_mockLibraryManager.Object, _mockConfigService.Object, _mockUserManager.Object, _mockUserDataManager.Object, _mockPluginLog.Object, _mockLogger.Object) { TitleMetadataCache = metadata };
+        _mockLibraryManager.Setup(manager => manager.GetPeople(movie)).Throws(new IOException("native lookup unavailable"));
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, movie)).Returns(new UserItemData { Key = "played", Played = true, LastPlayedDate = played });
+        var row = Assert.Single(service.BuildProfile(user, [movie], [], collectionIds: []).WatchedItems);
+        Assert.Equal("Writer", Assert.Single(row.WriterNames));
+        Assert.Equal(acquired, row.Credits!.Crew!.AcquiredAtUtc);
+        Assert.Equal(played, row.LastPlayedDate);
+        Assert.Null(row.AtMetadataCutoff(played).Credits!.Crew);
+    }
     private static readonly string[] ParentSeriesGenres = ["Sci-Fi", "Drama"];
     private static readonly string[] OwnEpisodeGenres = ["Comedy"];
 
@@ -444,6 +468,7 @@ public sealed class WatchHistoryServiceTests
         _mockLibraryManager.VerifyRemove(manager => manager.ItemAdded -= It.IsAny<EventHandler<ItemChangeEventArgs>>(), Times.Once);
         _mockLibraryManager.VerifyRemove(manager => manager.ItemUpdated -= It.IsAny<EventHandler<ItemChangeEventArgs>>(), Times.Once);
         _mockLibraryManager.VerifyRemove(manager => manager.ItemRemoved -= It.IsAny<EventHandler<ItemChangeEventArgs>>(), Times.Once);
+        _mockUserManager.VerifyRemove(manager => manager.OnUserUpdated -= It.IsAny<EventHandler<Jellyfin.Data.Events.GenericEventArgs<Jellyfin.Database.Implementations.Entities.User>>>(), Times.Once);
     }
 
     [Theory]
@@ -513,6 +538,20 @@ public sealed class WatchHistoryServiceTests
         Assert.Contains(alice.Id, ids);
         Assert.Contains(bobThrows.Id, ids);
         Assert.Contains(charlie.Id, ids);
+    }
+
+    [Fact]
+    public void RatingOnlyHistoryRemainsExplicitFeedbackWithoutChangingTheWatchedCommunityAverage()
+    {
+        var user = CreateTestUser("rating evidence");
+        var watched = new Movie { Id = Guid.NewGuid(), Path = "/media/watched.mkv", CommunityRating = 8 };
+        var rated = new Movie { Id = Guid.NewGuid(), Path = "/media/rated.mkv", CommunityRating = 4 };
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, watched)).Returns(new UserItemData { Key = "played", Played = true });
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, rated)).Returns(new UserItemData { Key = "rated", Rating = 2 });
+        var profile = _service.BuildProfile(user, [watched, rated], [], collectionIds: []);
+        Assert.Equal(8, profile.AverageCommunityRating);
+        Assert.Equal(2, Assert.Single(profile.WatchedItems, row => row.ItemId == rated.Id).UserRating);
+        Assert.False(Assert.Single(profile.WatchedItems, row => row.ItemId == rated.Id).HasPlaybackActivity());
     }
 
     [Theory]

@@ -13,6 +13,33 @@ public sealed class ContentFitProfileTests
     private static readonly string[] BattleKeywords = ["anime", "shounen", "pirate", "friendship", "super power"];
     private static readonly Dictionary<string, double> BattleGenres = new() { ["Animation"] = 1, ["Action"] = 1, ["Adventure"] = 1, ["Family"] = .1 };
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AnOldEpisodeCannotAssignItsDateToUndatedPositivePlaybackOfTheSameTitle(bool reverse)
+    {
+        var now = DateTime.UtcNow;
+        var series = Guid.NewGuid();
+        var undated = new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Episode", SeriesId = series, Played = true, Genres = ["Drama"], Tags = ["courtroom", "justice"] };
+        var dated = new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Episode", SeriesId = series, Played = true, LastPlayedDate = now.AddDays(-2 * EngineConstants.GenreDecayHalfLifeDays), Genres = ["Drama"], Tags = ["courtroom", "justice"] };
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [undated] };
+        CandidateFeatures Score()
+        {
+            var features = new CandidateFeatures { GenreSimilarity = 1 };
+            ContentFitProfile.Create(profile).Apply(features, ["Drama"], ["courtroom", "justice"], null, new Dictionary<string, double> { ["Drama"] = 1 });
+            return features;
+        }
+
+        var original = Score();
+        if (reverse) profile.WatchedItems.Insert(0, dated);
+        else profile.WatchedItems.Add(dated);
+        Assert.Equal(original.ContentFitSupport, Score().ContentFitSupport);
+        Assert.Equal(1, Score().ContentFitSupport);
+        Assert.Null(undated.LastPlayedDate);
+        var historical = Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training.TrainingHistory.Before(profile, now);
+        Assert.Equal(dated.ItemId, Assert.Single(historical.WatchedItems).ItemId);
+    }
+
     [Fact]
     public void HistoricalThematicSupportCannotRemainAsStrongAsRecentTasteAfterSeveralYears()
     {

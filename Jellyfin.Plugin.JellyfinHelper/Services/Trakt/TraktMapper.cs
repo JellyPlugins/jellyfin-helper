@@ -98,6 +98,7 @@ internal static class TraktMapper
             PopularityValue = null,
             GenreIds = [],
             SourceGenres = item.Genres?.ToArray(),
+            SourceGenresFromMetadata = true,
             TitleMetadata = Metadata(item, mediaType, acquiredAtUtc),
             PosterPath = null,
             Adult = false,

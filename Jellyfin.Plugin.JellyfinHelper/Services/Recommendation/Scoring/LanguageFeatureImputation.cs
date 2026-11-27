@@ -20,7 +20,7 @@ internal static class LanguageFeatureImputation
             return prior;
         }
 
-        var means = prior is { Length: CandidateFeatures.FeatureCount } ? (double[])prior.Clone() : new CandidateFeatures { IsExternalCandidate = true, HasPeopleMetadata = false }.ToModelVector(null);
+        var means = prior is { Length: CandidateFeatures.FeatureCount } ? (double[])prior.Clone() : ModelInputFeatures.CreateImputationDefaults();
         means[(int)FeatureIndex.LanguageAffinity] = Mean(examples, fittingIndices, audio: true);
         means[(int)FeatureIndex.SubtitleLanguageAffinity] = Mean(examples, fittingIndices, audio: false);
         return means;

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Net;
@@ -12,6 +13,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
+using Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
@@ -36,6 +38,91 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 [Collection("ConfigOverride")]
 public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
 {
+    private static readonly string TraktScope = TitleMetadataCache.SourceDigest(new("trakt", "https://api.trakt.tv", "public-metadata"), null);
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void RejectedRawAliasesCannotLeaveTheirKeywordsOrProjectedGenresBehind(bool expired, bool withdrawn)
+    {
+        var cache = new TitleMetadataCache();
+        var service = CreateService(titleMetadataCache: cache);
+        var config = Plugin.Instance!.Configuration;
+        config.TraktSourcingEnabled = !withdrawn;
+        var metadata = new TitleMetadataSnapshot
+        {
+            TmdbId = 77, MediaType = "tv", Source = "trakt", ObservationScope = expired || withdrawn ? TraktScope : null,
+            SourceGenres = ["Kids"], Keywords = ["preschool"], FetchedAtUtc = DateTime.UtcNow.AddDays(expired ? -31 : -1)
+        };
+        var candidate = new TmdbDiscoverItem { Id = 77, MediaType = "tv", SourceGenres = ["Drama"], TitleMetadata = metadata, KnownKeywords = ["preschool"] };
+        candidate.ProjectSourceGenres(metadata.SourceGenres!.Value);
+        typeof(SeerrDiscoveryService).GetMethod("ApplySharedCandidateMetadata", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [candidate, config, null]);
+        Assert.Null(candidate.TitleMetadata);
+        Assert.Null(candidate.KnownKeywords);
+        Assert.Equal(new[] { "Drama" }, candidate.SourceGenres);
+        Assert.Equal(new[] { "preschool" }, metadata.Keywords!.Value);
+    }
+
+    [Fact]
+    public void PartialAliasExpiryClearsOnlyExpiredProjectedLabelsWhileKeepingItsCurrentKeywords()
+    {
+        var cache = new TitleMetadataCache();
+        var service = CreateService(titleMetadataCache: cache);
+        var config = Plugin.Instance!.Configuration;
+        config.TraktSourcingEnabled = true;
+        var now = DateTime.UtcNow;
+        var metadata = new TitleMetadataSnapshot
+        {
+            TmdbId = 77, MediaType = "tv", Source = "trakt", ObservationScope = TraktScope,
+            SourceGenres = ["Kids"], Keywords = ["current keyword"], FetchedAtUtc = now.AddDays(-1),
+            FieldFetchedAtUtc = ImmutableDictionary<string, DateTime>.Empty.Add(nameof(TitleMetadataSnapshot.SourceGenres), now.AddDays(-31))
+        };
+        var candidate = new TmdbDiscoverItem { Id = 77, MediaType = "tv", SourceGenres = ["Drama"], TitleMetadata = metadata };
+        candidate.ProjectSourceGenres(metadata.SourceGenres!.Value);
+        typeof(SeerrDiscoveryService).GetMethod("ApplySharedCandidateMetadata", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [candidate, config, null]);
+        Assert.Equal(new[] { "Drama" }, candidate.SourceGenres);
+        Assert.Equal(new[] { "current keyword" }, candidate.KnownKeywords);
+        Assert.Null(candidate.TitleMetadata!.SourceGenres);
+        Assert.Equal(new[] { "Kids" }, metadata.SourceGenres!.Value);
+    }
+
+    [Fact]
+    public void ExpiredProjectedGenreIdsAndCreditNamesCannotRemainAsScoringInputs()
+    {
+        var now = DateTime.UtcNow;
+        var candidate = new TmdbDiscoverItem
+        {
+            Id = 77, GenreIds = [28], KnownPeople = ["stale actor"],
+            TitleMetadata = new TitleMetadataSnapshot { TmdbId = 77, GenreIds = [16], FetchedAtUtc = now.AddDays(-31) }
+        };
+        candidate.ProjectGenreIds([16]);
+        typeof(SeerrDiscoveryService).GetMethod("ApplyCachedSnapshot", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [candidate, null]);
+        Assert.Equal(new[] { 28 }, candidate.GenreIds);
+        Assert.Null(candidate.KnownPeople);
+        Assert.Null(candidate.Credits);
+        Assert.Null(candidate.TitleMetadata);
+        candidate.ProjectGenreIds([]);
+        Assert.Empty(candidate.GenreIds);
+        candidate.GenreIds = [18];
+        candidate.ProjectGenreIds(null);
+        Assert.Equal(new[] { 18 }, candidate.GenreIds);
+    }
+
+    [Fact]
+    public void CurrentSeerrGenreClearSurvivesWhenTheSharedCacheMisses()
+    {
+        var now = DateTime.UtcNow;
+        var scope = TitleMetadataCache.SeerrScope(Plugin.Instance!.Configuration, "en");
+        var seerr = new TitleMetadataSnapshot { TmdbId = 101, GenreIds = [], Source = "seerr", ObservationScope = scope, FetchedAtUtc = now };
+        var candidate = new TmdbDiscoverItem { Id = 101, GenreIds = [28], TitleMetadata = seerr };
+        candidate.ProjectGenreIds([28]);
+        var method = typeof(SeerrDiscoveryService).GetMethod("ApplyCachedSnapshot", BindingFlags.Static | BindingFlags.NonPublic)!;
+        method.Invoke(null, [candidate, null]);
+        Assert.Empty(candidate.GenreIds);
+        Assert.Empty(candidate.TitleMetadata!.GenreIds!.Value);
+    }
+
     private readonly List<PerUserEnsembleRegistry> _registries = [];
     private readonly List<IDisposable> _owned = [];
     private readonly Mock<IWatchHistoryService> _history = new();
@@ -51,6 +138,28 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     private TimeSpan _detailDelay;
     private int _activeDelayedDetails;
     private int _maxConcurrentDelayedDetails;
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RejectedMetadataDropsOnlyLabelsProjectedFromThatSameObservation(bool projected)
+    {
+        var metadata = new TitleMetadataCache();
+        var service = CreateService(titleMetadataCache: metadata);
+        var original = new ExternalDiscoveryCandidate
+        {
+            TmdbId = 77, MediaType = "tv", SourceGenres = ["independent label"], SourceGenresFromMetadata = projected,
+            TitleMetadata = new TitleMetadataSnapshot { TmdbId = 78, MediaType = "tv", Source = "trakt", ObservationScope = TraktScope, SourceGenres = ["independent label"], FetchedAtUtc = DateTime.UtcNow }
+        };
+        var flags = BindingFlags.Static | BindingFlags.Instance | BindingFlags.NonPublic;
+        var candidate = (TmdbDiscoverItem)typeof(SeerrDiscoveryService).GetMethod("ToTmdbItem", flags)!.Invoke(null, [original])!;
+        Assert.Equal(original.SourceGenres, candidate.SourceGenres);
+        typeof(SeerrDiscoveryService).GetMethod("ApplySharedCandidateMetadata", flags)!.Invoke(service, [candidate, Plugin.Instance!.Configuration, null]);
+        Assert.Null(candidate.TitleMetadata);
+        Assert.Equal(projected ? null : original.SourceGenres, candidate.SourceGenres);
+        Assert.Equal(new[] { "independent label" }, original.SourceGenres);
+        Assert.NotNull(original.TitleMetadata);
+    }
 
     // The DiscoveryCacheService created by the most recent CreateService call, so a test can seed the user's
     // own cached recommendations (the source the own-recommendation exclusion reads).
@@ -158,30 +267,38 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     {
         var user = Guid.NewGuid();
         var directory = Path.Join(Path.GetTempPath(), "jfh-unknown-feedback-" + Guid.NewGuid().ToString("N"));
-        using (var original = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)) original.RecordDismissed(user, 700, "tv");
-        var clock = new ControlledWaitTimeProvider();
-        var fail = true;
-        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
+        try
         {
-            RetryTimeProvider = clock,
-            OpenFeedbackRead = path => { if (fail) throw new IOException("unavailable initial read"); return File.OpenRead(path); }
-        };
-        Assert.Throws<IOException>(() => store.RecordRequested(user, 77, "movie"));
-        Assert.Contains((77, "movie"), store.GetPendingRequestedItems(user));
-        SetupProfile(user);
-        var service = CreateService(feedbackStoreOverride: store);
-        var cached = new DiscoveryResult { UserId = user, GeneratedAt = DateTime.UtcNow.AddDays(-1), Recommendations = [new() { TmdbId = 77, MediaType = "movie" }, new() { TmdbId = 700, MediaType = "tv" }, new() { TmdbId = 78, MediaType = "movie" }] };
-        var withheld = service.FilterConsumedItems(user, cached);
-        Assert.Empty(withheld.Recommendations);
-        Assert.Equal(cached.GeneratedAt, withheld.GeneratedAt);
-        Assert.Equal(3, cached.Recommendations.Count);
-        Assert.Null(await service.ScoreExternalCandidatesAsync(user, [Candidate(78)], TestContext.Current.CancellationToken));
-        Assert.Equal(0, _detailCalls);
-        fail = false;
-        clock.ExpireDeadlines();
-        await FeedbackWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
-        Assert.Equal(78, Assert.Single(service.FilterConsumedItems(user, cached).Recommendations).TmdbId);
-        Assert.Equal(3, cached.Recommendations.Count);
+            using (var original = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)) original.RecordDismissed(user, 700, "tv");
+            var clock = new ControlledWaitTimeProvider();
+            var fail = true;
+            using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
+            {
+                RetryTimeProvider = clock,
+                OpenFeedbackRead = path => { if (fail) throw new IOException("unavailable initial read"); return File.OpenRead(path); }
+            };
+
+            Assert.Throws<IOException>(() => store.RecordRequested(user, 77, "movie"));
+            Assert.Contains((77, "movie"), store.GetPendingRequestedItems(user));
+            SetupProfile(user);
+            var service = CreateService(feedbackStoreOverride: store);
+            var cached = new DiscoveryResult { UserId = user, GeneratedAt = DateTime.UtcNow.AddDays(-1), Recommendations = [new() { TmdbId = 77, MediaType = "movie" }, new() { TmdbId = 700, MediaType = "tv" }, new() { TmdbId = 78, MediaType = "movie" }] };
+            var withheld = service.FilterConsumedItems(user, cached);
+            Assert.Empty(withheld.Recommendations);
+            Assert.Equal(cached.GeneratedAt, withheld.GeneratedAt);
+            Assert.Equal(3, cached.Recommendations.Count);
+            Assert.Null(await service.ScoreExternalCandidatesAsync(user, [Candidate(78)], TestContext.Current.CancellationToken));
+            Assert.Equal(0, _detailCalls);
+            fail = false;
+            clock.ExpireDeadlines();
+            await FeedbackWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.Equal(78, Assert.Single(service.FilterConsumedItems(user, cached).Recommendations).TmdbId);
+            Assert.Equal(3, cached.Recommendations.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]
@@ -189,13 +306,13 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     {
         var user = Guid.NewGuid();
         var directory = Path.Join(Path.GetTempPath(), "jfh-oversized-evidence-" + Guid.NewGuid().ToString("N"));
-        var file = Path.Join(directory, "jellyfin-helper-discovery-feedback.json");
-        using (var original = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)) original.RecordDismissed(user, 700, "tv");
-        var originalLength = new FileInfo(file).Length;
-        using (var stream = File.OpenWrite(file)) stream.SetLength(121L * 1024 * 1024);
-        using var unavailable = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory);
         try
         {
+            var file = Path.Join(directory, "jellyfin-helper-discovery-feedback.json");
+            using (var original = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)) original.RecordDismissed(user, 700, "tv");
+            var originalLength = new FileInfo(file).Length;
+            using (var stream = File.OpenWrite(file)) stream.SetLength(121L * 1024 * 1024);
+            using var unavailable = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory);
             SetupProfile(user);
             var service = CreateService(feedbackStoreOverride: unavailable);
             var cached = new DiscoveryResult { UserId = user, GeneratedAt = DateTime.UtcNow.AddDays(-1), Recommendations = [new() { TmdbId = 700, MediaType = "tv" }, new() { TmdbId = 78, MediaType = "movie" }] };
@@ -211,8 +328,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         }
         finally
         {
-            unavailable.Dispose();
-            Directory.Delete(directory, recursive: true);
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
         }
     }
 
@@ -589,12 +705,14 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     {
         var user = Guid.NewGuid();
         var service = CreateService();
-        if (throws) _history.Setup(history => history.GetUserWatchProfile(user)).Throws(new IOException("test unavailable profile"));
+        if (throws) _history.Setup(history => history.GetCurrentMediaTarget(user)).Throws(new IOException("test unavailable aggregate"));
+        else _history.Setup(history => history.GetCurrentMediaTarget(user)).Returns((double?)null);
         var saved = MediaPool(user, .8);
         var delivered = service.FilterConsumedItems(user, saved);
         Assert.Null(delivered.TargetSeriesShare);
         Assert.Equal(.8, saved.TargetSeriesShare);
         Assert.Equal(saved.Recommendations, delivered.Recommendations);
+        _history.Verify(history => history.GetUserWatchProfile(It.IsAny<Guid>()), Times.Never);
         Assert.Equal(0, _detailCalls);
     }
 
@@ -854,7 +972,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var acquired = DateTime.UtcNow.AddHours(-1);
         var scope = TitleMetadataCache.SeerrScope(Plugin.Instance!.Configuration, "en");
         var seerr = new TitleMetadataSnapshot { TmdbId = 101, GenreIds = [16], Source = "seerr", ObservationScope = scope, FetchedAtUtc = acquired.AddHours(-1) };
-        var independent = new TitleMetadataSnapshot { TmdbId = 101, Source = "trakt", SourceGenres = ["Family"], FetchedAtUtc = acquired.AddHours(-1) };
+        var independent = new TitleMetadataSnapshot { TmdbId = 101, Source = "trakt", ObservationScope = TraktScope, SourceGenres = ["Family"], FetchedAtUtc = acquired.AddHours(-1) };
         var candidate = new TmdbDiscoverItem { Id = 101, GenreIds = [16], SourceGenres = ["Family"], TitleMetadata = TitleMetadataMerger.Combine([seerr, independent]) };
         var detail = new SeerrMediaDetailResponse { Id = 101, Genres = partial ? null : [] };
         var method = typeof(SeerrDiscoveryService).GetMethod("ApplyDetail", BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -1253,6 +1371,17 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         Assert.True(selected.AvailabilityVerified);
     }
 
+    [Fact]
+    public async Task InvalidSeerrConfigurationCannotScoreExternalCandidates()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user);
+        Plugin.Instance!.Configuration.SeerrUrl = "http://[invalid";
+        var result = await CreateService().ScoreExternalCandidatesAsync(user, [Candidate(101)], TestContext.Current.CancellationToken);
+        Assert.Null(result);
+        Assert.Equal(0, _detailCalls);
+    }
+
     private static string CertifiedDetail(int id, int age) => $$"""{"id":{{id}},"genres":[{"id":28}],"releases":{"results":[{"iso_3166_1":"DE","release_dates":[{"certification":"{{age}}"}]}] } }""";
 
     [Fact]
@@ -1395,7 +1524,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var acquired = DateTime.UtcNow.AddHours(-1);
         var supplemental = new TitleMetadataSnapshot
         {
-            TmdbId = 101, OriginalLanguage = "ja", Overview = "supplemental synopsis", Source = "trakt", FetchedAtUtc = acquired.AddHours(-1)
+            TmdbId = 101, OriginalLanguage = "ja", Overview = "supplemental synopsis", Source = "trakt", ObservationScope = TraktScope, FetchedAtUtc = acquired.AddHours(-1)
         };
         var candidate = new TmdbDiscoverItem { Id = 101, TitleMetadata = supplemental };
         var detail = new SeerrMediaDetailResponse { Id = detailId, Keywords = [new SeerrMediaDetailResponse.GenreRef { Id = 42, Name = "pirate" }] };
@@ -1456,7 +1585,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var service = CreateService();
         var old = DateTime.UtcNow.AddDays(-1);
         var seerr = new TitleMetadataSnapshot { TmdbId = 101, Keywords = ["anime"], Overview = "retained", Source = "seerr", FetchedAtUtc = old };
-        var independent = new TitleMetadataSnapshot { TmdbId = 101, Keywords = independentAnime ? ["anime", "friendship"] : ["friendship"], Source = "trakt", FetchedAtUtc = old };
+        var independent = new TitleMetadataSnapshot { TmdbId = 101, Keywords = independentAnime ? ["anime", "friendship"] : ["friendship"], Source = "trakt", ObservationScope = TraktScope, FetchedAtUtc = old };
         var projected = TitleMetadataMerger.Combine([seerr, independent]);
         var restored = System.Text.Json.JsonSerializer.Deserialize<TitleMetadataSnapshot>(System.Text.Json.JsonSerializer.Serialize(projected))!;
         var candidate = new TmdbDiscoverItem { Id = 101, TitleMetadata = restored };
@@ -1497,19 +1626,22 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     [InlineData(true)]
     public void ExactTypedTmdbMetadataSurvivesAConflictingCandidateAlias(bool conflicts)
     {
+        Plugin.Instance!.Configuration.TraktSourcingEnabled = true;
         var cache = new TitleMetadataCache();
         var service = CreateService(titleMetadataCache: cache);
         var config = Plugin.Instance!.Configuration;
         cache.Store(config, new TitleMetadataSnapshot { TmdbId = 77, MediaType = "tv", TvdbId = 22, GenreIds = [16], Keywords = ["pirate"], FetchedAtUtc = DateTime.UtcNow.AddMinutes(-2) });
         var candidate = new TmdbDiscoverItem
         {
-            Id = 77, MediaType = "tv", SourceGenres = ["Drama"], TitleMetadata = new TitleMetadataSnapshot { TmdbId = 77, MediaType = "tv", TvdbId = conflicts ? 23 : 22, Keywords = ["friendship"], SourceGenres = ["Kids"], Source = "trakt", FetchedAtUtc = DateTime.UtcNow.AddMinutes(-1) }
+            Id = 77, MediaType = "tv", SourceGenres = ["Drama"], TitleMetadata = new TitleMetadataSnapshot { TmdbId = 77, MediaType = "tv", TvdbId = conflicts ? 23 : 22, Keywords = ["friendship"], SourceGenres = ["Kids"], Source = "trakt", ObservationScope = TraktScope, FetchedAtUtc = DateTime.UtcNow.AddMinutes(-1) }
         };
         candidate.ProjectSourceGenres(["Kids"]);
         typeof(SeerrDiscoveryService).GetMethod("ApplySharedCandidateMetadata", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [candidate, config, null]);
-        Assert.Equal(22, candidate.TitleMetadata!.TvdbId);
-        Assert.Contains("pirate", candidate.TitleMetadata.Keywords!.Value);
-        Assert.Equal(!conflicts, candidate.TitleMetadata.Keywords.Value.Contains("friendship"));
+        var metadata = Assert.IsType<TitleMetadataSnapshot>(candidate.TitleMetadata);
+        var keywords = Assert.IsType<ImmutableArray<string>>(metadata.Keywords);
+        Assert.Equal(22, metadata.TvdbId);
+        Assert.Contains("pirate", keywords);
+        Assert.Equal(!conflicts, keywords.Contains("friendship"));
         Assert.Contains("Drama", candidate.SourceGenres!);
         Assert.Equal(!conflicts, candidate.SourceGenres!.Contains("Kids"));
         Assert.Contains(16, candidate.GenreIds);
@@ -1522,12 +1654,92 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var service = CreateService(titleMetadataCache: cache);
         var config = Plugin.Instance!.Configuration;
         config.SonarrInstances = [new Jellyfin.Plugin.JellyfinHelper.Configuration.ArrInstanceConfig { Url = "https://sonarr.example.test", ApiKey = "test-key" }];
+        config.TraktSourcingEnabled = true;
         Assert.NotNull(cache.StoreSupplemental(config, new TitleMetadataSnapshot { TmdbId = 0, MediaType = "tv", TvdbId = 22, GenreIds = [16], Keywords = ["pirate"], FetchedAtUtc = DateTime.UtcNow.AddMinutes(-1) }, new MetadataSourceScope("sonarr", "https://sonarr.example.test", "test-key"), null));
         Assert.Null(cache.GetForLanguage(config, 77, "tv", 0, null, null));
-        var candidate = new TmdbDiscoverItem { Id = 77, MediaType = "tv", TitleMetadata = new TitleMetadataSnapshot { TmdbId = 77, MediaType = "tv", TvdbId = 22, FetchedAtUtc = DateTime.UtcNow } };
+        var alias = TraktMapper.Metadata(new TraktMediaItem { Ids = new() { Tmdb = 77, Tvdb = 22 } }, "tv", DateTime.UtcNow);
+        var candidate = new TmdbDiscoverItem { Id = 77, MediaType = "tv", TitleMetadata = alias };
         typeof(SeerrDiscoveryService).GetMethod("ApplySharedCandidateMetadata", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [candidate, config, null]);
-        Assert.Contains("pirate", candidate.TitleMetadata!.Keywords!.Value);
+        var metadata = Assert.IsType<TitleMetadataSnapshot>(candidate.TitleMetadata);
+        Assert.Contains("pirate", metadata.Keywords!.Value);
         Assert.Contains(16, candidate.GenreIds);
+        Assert.Equal(77, metadata.TmdbId);
+        Assert.Equal(22, metadata.TvdbId);
+        Assert.Null(alias.Keywords);
+        Assert.Equal(TraktScope, alias.ObservationScope);
+    }
+
+    [Theory]
+    [InlineData("movie")]
+    [InlineData("tv")]
+    public void CachedSharedCreditsProjectTheirActualPeopleAndAcquisitionTimeBeforeScoring(string mediaType)
+    {
+        var cache = new TitleMetadataCache();
+        var service = CreateService(titleMetadataCache: cache);
+        var config = Plugin.Instance!.Configuration;
+        var acquired = DateTime.UtcNow.AddHours(-1);
+        var metadata = TitleMetadataSnapshot.FromDetail(new SeerrMediaDetailResponse
+        {
+            Id = 101,
+            Credits = new SeerrCredits
+            {
+                Cast = [new() { Id = 1, Name = "Cached actor", Order = 0 }],
+                Crew = [new() { Id = 2, Name = "Cached writer", Job = "Writer" }]
+            }
+        }, mediaType, acquired);
+        cache.Store(config, metadata);
+        var candidate = new TmdbDiscoverItem { Id = 101, MediaType = mediaType, KnownPeople = ["stale actor"] };
+        typeof(SeerrDiscoveryService).GetMethod("ApplySharedCandidateMetadata", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [candidate, config, null]);
+        Assert.Equal(new[] { "Cached actor" }, candidate.KnownPeople);
+        Assert.Equal(101, candidate.Credits!.TmdbId);
+        Assert.Equal(mediaType, candidate.Credits.MediaType);
+        Assert.Equal(acquired, candidate.Credits.Cast!.AcquiredAtUtc);
+        Assert.Equal(acquired, candidate.Credits.Crew!.AcquiredAtUtc);
+        Assert.Equal("Cached writer", Assert.Single(candidate.Credits.People(writers: true)).Name);
+        Assert.Equal(metadata.Credits!.Cast, candidate.Credits.Cast);
+        Assert.Null(metadata.ObservationScope);
+    }
+
+    [Theory]
+    [InlineData("current", true)]
+    [InlineData("unscoped", false)]
+    [InlineData("expired", false)]
+    [InlineData("withdrawn", false)]
+    [InlineData("conflicting-id", false)]
+    public void OnlyACurrentConfiguredCompatibleAliasCanAuthorizeSupplementalMetadata(string boundary, bool accepted)
+    {
+        var cache = new TitleMetadataCache();
+        var service = CreateService(titleMetadataCache: cache);
+        var config = Plugin.Instance!.Configuration;
+        config.TraktSourcingEnabled = boundary != "withdrawn";
+        config.SonarrInstances = [new() { Url = "https://sonarr.example.test", ApiKey = "key" }];
+        var acquired = DateTime.UtcNow.AddMinutes(-1);
+        var supplemental = new TitleMetadataSnapshot { TvdbId = 22, MediaType = "tv", GenreIds = [16], Keywords = ["linked keyword"], FetchedAtUtc = acquired };
+        Assert.NotNull(cache.StoreSupplemental(config, supplemental, new("sonarr", "https://sonarr.example.test", "key"), null));
+        Assert.Null(cache.GetForLanguage(config, 77, "tv", 0, null, null));
+        var alias = TraktMapper.Metadata(new TraktMediaItem { Ids = new() { Tmdb = 77, Tvdb = boundary == "conflicting-id" ? 23 : 22 } }, "tv", acquired) with
+        {
+            ObservationScope = boundary == "unscoped" ? null : TraktScope,
+            FetchedAtUtc = boundary == "expired" ? acquired.AddDays(-31) : acquired
+        };
+        var candidate = new TmdbDiscoverItem { Id = 77, MediaType = "tv", TitleMetadata = alias };
+        typeof(SeerrDiscoveryService).GetMethod("ApplySharedCandidateMetadata", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [candidate, config, null]);
+        Assert.Equal(accepted, candidate.GenreIds.Contains(16));
+        if (accepted)
+        {
+            Assert.Equal("linked keyword", Assert.Single(candidate.KnownKeywords!));
+            Assert.Equal(77, candidate.TitleMetadata!.TmdbId);
+            Assert.Equal(22, candidate.TitleMetadata.TvdbId);
+        }
+        else
+        {
+            Assert.Null(candidate.KnownKeywords);
+            Assert.Null(candidate.TitleMetadata?.Keywords);
+        }
+
+        Assert.Null(alias.Keywords);
+        Assert.Equal(acquired, supplemental.FetchedAtUtc);
+        Assert.Equal(new[] { "linked keyword" }, supplemental.Keywords!.Value);
     }
 
     [Theory]
@@ -1542,7 +1754,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var service = CreateService();
         var now = DateTime.UtcNow;
         var scope = TitleMetadataCache.SeerrScope(Plugin.Instance!.Configuration, null);
-        var independent = new TitleMetadataSnapshot { TmdbId = 101, Keywords = ["pirate"], Source = "trakt", FetchedAtUtc = now.AddMinutes(-1) };
+        var independent = new TitleMetadataSnapshot { TmdbId = 101, Keywords = ["pirate"], Source = "trakt", ObservationScope = TraktScope, FetchedAtUtc = now.AddMinutes(-1) };
         var seerr = new TitleMetadataSnapshot
         {
             TmdbId = 101, GenreIds = [16], Source = "seerr", ObservationScope = scope, FetchedAtUtc = now.AddMinutes(-1),
@@ -1608,7 +1820,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var acquired = DateTime.UtcNow.AddDays(-2);
         var candidate = new TmdbDiscoverItem
         {
-            Id = 101, TitleMetadata = new TitleMetadataSnapshot { TmdbId = 101, OriginalLanguage = "ja", Overview = "external synopsis", Source = "trakt", FetchedAtUtc = acquired }
+            Id = 101, TitleMetadata = new TitleMetadataSnapshot { TmdbId = 101, OriginalLanguage = "ja", Overview = "external synopsis", Source = "trakt", ObservationScope = TraktScope, FetchedAtUtc = acquired }
         };
         var detail = new SeerrMediaDetailResponse { Id = 101, Keywords = [new SeerrMediaDetailResponse.GenreRef { Id = 42, Name = "pirate" }] };
         var flags = BindingFlags.Instance | BindingFlags.NonPublic;
@@ -1655,7 +1867,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     }
 
     [Fact]
-    public async Task ProviderGenreAliasRefreshRebuildsSemanticAudienceEvidenceBeforeFinalScoring()
+    public async Task ProviderGenreAliasRefreshRebuildsAudienceEligibilityBeforeFinalSelection()
     {
         var user = Guid.NewGuid();
         var alias = "animation alias " + Guid.NewGuid().ToString("N");
@@ -1668,12 +1880,11 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var before = GenreNormalizer.CatalogVersion;
         _detailById[101] = $$"""{"id":101,"genres":[{"id":16,"name":"{{alias}}"}],"keywords":[{"name":"preschool"},{"name":"children's television"}]}""";
         var result = await CreateService().ScoreExternalCandidatesAsync(user, [Candidate(101)], TestContext.Current.CancellationToken);
-        var delivered = Assert.Single(result!.Recommendations).ScoringFeatures!;
+        Assert.Null(result);
         Assert.True(GenreNormalizer.CatalogVersion > before);
         var genres = PreferenceBuilder.BuildGenrePreferenceVector(profile);
         var baseline = SimilarityComputer.ComputeGenreSimilarity(["Animation"], genres);
         var expected = ContentFitProfile.Create(profile).AdjustGenreSimilarity(baseline, ["Animation"], ["preschool", "children's television"], null, genres);
-        Assert.Equal(expected, delivered.GenreSimilarity, 12);
         Assert.Equal(baseline * .3, expected, 12);
     }
 
@@ -2473,11 +2684,16 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         SetupProfile(user);
         var config = Plugin.Instance!.Configuration;
         config.SonarrInstances = [new() { Url = "https://sonarr.example.test", ApiKey = "key" }];
+        config.TraktSourcingEnabled = true;
         var metadata = new TitleMetadataCache();
         metadata.StoreSupplemental(config, new TitleMetadataSnapshot { TvdbId = 456, MediaType = "tv", AnimeHint = true, FetchedAtUtc = DateTime.UtcNow }, new("sonarr", "https://sonarr.example.test", "key"), null);
-        var candidate = new ExternalDiscoveryCandidate { TmdbId = 123, MediaType = "tv", Title = "Anchored", VoteAverage = 7.5, SourceGenres = ["Animation"], TitleMetadata = new TitleMetadataSnapshot { TmdbId = 123, TvdbId = 456, MediaType = "tv", FetchedAtUtc = DateTime.UtcNow, Source = "trakt" } };
+        var candidate = Assert.Single(TraktMapper.MapMediaItems([new TraktMediaItem { Ids = new() { Tmdb = 123, Tvdb = 456 }, Title = "Anchored", Rating = 7.5, Genres = ["animation"] }], "tv", out var dropped));
+        Assert.Equal(0, dropped);
+        var original = candidate.TitleMetadata;
         var result = await CreateService(titleMetadataCache: metadata).ScoreExternalCandidatesAsync(user, [candidate], TestContext.Current.CancellationToken);
         Assert.True(Assert.Single(result!.Recommendations).TitleMetadata!.AnimeHint);
+        Assert.Same(original, candidate.TitleMetadata);
+        Assert.Null(original!.AnimeHint);
     }
 
     [Fact]

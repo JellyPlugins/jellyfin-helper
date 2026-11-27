@@ -178,7 +178,7 @@ public sealed class CandidateFeatures
     public const int FeatureCount = 41;
 
     /// <summary>The first forward root-derivation contract, including bounded absolute CF support; not the v6 parameter version.</summary>
-    public const int CurrentFeatureDerivationVersion = 1;
+    public const int CurrentFeatureDerivationVersion = 2;
 
     /// <summary>
     ///     Normalization ceiling for genre count (items with >= this many genres map to 1.0).

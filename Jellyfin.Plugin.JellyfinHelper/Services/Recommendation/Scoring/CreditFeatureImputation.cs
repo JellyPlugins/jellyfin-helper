@@ -51,7 +51,9 @@ internal static class CreditFeatureImputation
             return prior;
         }
 
-        var means = prior is { Length: CandidateFeatures.FeatureCount } ? (double[])prior.Clone() : new CandidateFeatures().ToVector();
+        var means = prior is { Length: CandidateFeatures.FeatureCount }
+            ? (double[])prior.Clone()
+            : ModelInputFeatures.CreateImputationDefaults();
         foreach (var coordinate in Coordinates)
         {
             var values = fitting.Order().Select(index => examples[index].Features)
